@@ -1,6 +1,6 @@
 {
   "name": "speaky",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Next-gen AI Voice Dictation & Assistant for Windows and macOS",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -42,6 +42,7 @@
   "build": {
     "appId": "com.speaky.app",
     "productName": "speaky",
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
@@ -112,6 +113,9 @@
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false
+    },
+    "dmg": {
+      "sign": false
     },
     "linux": {
       "target": [
