@@ -1,5 +1,5 @@
 {
-  "appId": "com.speaky.app.legacy",
+  "appId": "com.speaky.app",
   "productName": "speaky",
   "npmRebuild": false,
   "electronVersion": "22.3.27",
