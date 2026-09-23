@@ -6,7 +6,7 @@ import { VerificationManager } from '../verification/VerificationManager';
 import { GovernanceManager } from '../governance/GovernanceManager';
 import { HarnessPipelineInput, HarnessPipelineOutput } from '../types';
 import { transcribeAudio } from '../../services/sttService';
-import { cleanTextRules, refineTextWithLLM, rewriteTextWithLLM } from '../../services/llmProcessor';
+import { cleanTextRules, refineTextWithLLM, rewriteTextWithLLM, translateTextWithLLM } from '../../services/llmProcessor';
 import { parseVoiceMacroCommand } from '../../services/macroParser';
 import { storage } from '../../services/storage';
 import { TextSnippet } from '../../../src/types';
@@ -85,9 +85,10 @@ export class ExecutionManager {
         };
       }
 
-      // 5.5 Check for voice-activated macro creation command
-      const isRewrite = Boolean(input.selectedText && input.selectedText.trim().length > 0);
-      if (!isRewrite && settings.handsFreeCommands) {
+      // 5.5 Check for voice-activated macro creation command (dictation mode only)
+      const isTranslate = input.mode === 'translate';
+      const isRewrite = !isTranslate && Boolean(input.selectedText && input.selectedText.trim().length > 0);
+      if (!isRewrite && !isTranslate && settings.handsFreeCommands) {
         const macro = parseVoiceMacroCommand(verification.sanitizedText);
         if (macro) {
           const currentSnippets = storage.getSnippets();
@@ -144,16 +145,26 @@ export class ExecutionManager {
         }
       }
 
-      // 6. Lifecycle: Refining (Context & Snippets) or AI Rewrite
+      // 6. Lifecycle: Refining (Context & Snippets), AI Rewrite or Translate
       this.lifecycle.transitionTo('REFINING', traceId);
 
-      let processedText = await this.observability.recordSpan(traceId, isRewrite ? 'ai_rewrite' : 'refinement', async () => {
-        if (isRewrite && input.selectedText) {
-          return await rewriteTextWithLLM(input.selectedText, verification.sanitizedText, enrichedContext.activeContext);
-        } else {
+      let processedText = await this.observability.recordSpan(
+        traceId,
+        isTranslate ? 'translate' : isRewrite ? 'ai_rewrite' : 'refinement',
+        async () => {
+          if (isTranslate) {
+            return await translateTextWithLLM(
+              verification.sanitizedText,
+              settings.translateTargetLang || 'en',
+              enrichedContext.activeContext
+            );
+          }
+          if (isRewrite && input.selectedText) {
+            return await rewriteTextWithLLM(input.selectedText, verification.sanitizedText, enrichedContext.activeContext);
+          }
           return await refineTextWithLLM(verification.sanitizedText, enrichedContext.activeContext);
         }
-      });
+      );
 
       // 7. Governance: PII Sanitization
       const govFilter = this.governance.filterPII(processedText);
@@ -178,7 +189,8 @@ export class ExecutionManager {
         durationMs: Math.round((sttResult.durationSeconds || 1) * 1000),
         latencyMs: totalLatency,
         appContext: enrichedContext.activeContext.processName,
-        category: enrichedContext.activeContext.category
+        category: enrichedContext.activeContext.category,
+        mode: isTranslate ? 'translate' : 'dictation'
       });
 
       // 10. Finish
@@ -197,7 +209,8 @@ export class ExecutionManager {
         rawText: sttResult.text,
         latencyMs: totalLatency,
         injected,
-        isRewrite
+        isRewrite,
+        isTranslate
       };
 
     } catch (err: any) {

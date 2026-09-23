@@ -28,7 +28,47 @@ export const I18N = {
     tabGeneral: 'Настройки',
     tabSnippets: 'Автозамена',
     tabHistory: 'История',
+    tabModels: 'Модели',
+    tabPostprocess: 'Постобработка',
+    tabTranslate: 'Перевод',
     saved: 'Сохранено',
+
+    // Models Tab
+    modelsTitle: 'Модели распознавания',
+    modelsSubtitle: 'Локальные модели, скачиваемые на диск, и облачные провайдеры',
+    localModelsSection: 'Локальные модели (офлайн)',
+    cloudModelsSection: 'Облачные провайдеры',
+    downloadModel: 'Скачать',
+    downloadingModel: 'Загрузка',
+    installedModel: 'Установлена',
+    removeModel: 'Удалить',
+    activeModel: 'Активна',
+    selectModel: 'Выбрать',
+    engineMissing: 'Движок не установлен',
+    modelsEmpty: 'Модель не выбрана. Скачайте модель или выберите облачный провайдер.',
+
+    // Post-processing Tab
+    postprocessTitle: 'Постобработка текста',
+    postprocessSubtitle: 'LLM-провайдер и пользовательские промпты для очистки и стиля речи',
+    llmProviderLabel: 'Провайдер LLM',
+    promptsLabel: 'Промпты постобработки',
+    addPrompt: 'Новый промпт',
+    promptNamePlaceholder: 'Название промпта',
+    promptBodyPlaceholder: 'Системный промпт. Текст диктовки подставляется автоматически.',
+    activatePrompt: 'Активировать',
+    activePrompt: 'Активен',
+    deletePrompt: 'Удалить',
+    promptSaved: 'Промпт сохранён',
+
+    // Translate Tab
+    translateTitle: 'Режим перевода',
+    translateSubtitle: 'Диктовка на отдельной горячей клавише с переводом текста на целевой язык',
+    translateHotkeyLabel: 'Горячая клавиша перевода',
+    translateTargetLabel: 'Целевой язык',
+    translatePromptLabel: 'Промпт перевода',
+    translateEnabledLabel: 'Включить режим перевода',
+    translateHint: 'Нажмите горячую клавишу и speakyте — текст вставится уже переведённым.',
+    hudTranslating: 'Перевод...',
 
     // General Tab
     generalTitle: 'Основные настройки',
@@ -138,7 +178,47 @@ export const I18N = {
     tabGeneral: 'Settings',
     tabSnippets: 'Snippets',
     tabHistory: 'History',
+    tabModels: 'Models',
+    tabPostprocess: 'Post-processing',
+    tabTranslate: 'Translate',
     saved: 'Saved',
+
+    // Models Tab
+    modelsTitle: 'Speech models',
+    modelsSubtitle: 'Local models downloaded to disk and cloud providers',
+    localModelsSection: 'Local models (offline)',
+    cloudModelsSection: 'Cloud providers',
+    downloadModel: 'Download',
+    downloadingModel: 'Downloading',
+    installedModel: 'Installed',
+    removeModel: 'Remove',
+    activeModel: 'Active',
+    selectModel: 'Select',
+    engineMissing: 'Engine not installed',
+    modelsEmpty: 'No model selected. Download a model or pick a cloud provider.',
+
+    // Post-processing Tab
+    postprocessTitle: 'Text post-processing',
+    postprocessSubtitle: 'LLM provider and custom prompts for cleanup and styling',
+    llmProviderLabel: 'LLM provider',
+    promptsLabel: 'Post-processing prompts',
+    addPrompt: 'New prompt',
+    promptNamePlaceholder: 'Prompt name',
+    promptBodyPlaceholder: 'System prompt. Dictated text is appended automatically.',
+    activatePrompt: 'Activate',
+    activePrompt: 'Active',
+    deletePrompt: 'Delete',
+    promptSaved: 'Prompt saved',
+
+    // Translate Tab
+    translateTitle: 'Translate mode',
+    translateSubtitle: 'Dictate with a dedicated hotkey and insert the translated text',
+    translateHotkeyLabel: 'Translate hotkey',
+    translateTargetLabel: 'Target language',
+    translatePromptLabel: 'Translation prompt',
+    translateEnabledLabel: 'Enable translate mode',
+    translateHint: 'Press the hotkey and speak — the text is inserted already translated.',
+    hudTranslating: 'Translating...',
 
     // General Tab
     generalTitle: 'General Settings',
@@ -641,7 +721,11 @@ export const I18N = {
 
 export type TranslationKeys = keyof typeof I18N.en;
 
-export function getTranslations(settingLang?: UILanguage) {
+export function getTranslations(settingLang?: UILanguage): typeof I18N.en {
   const lang = resolveLanguage(settingLang);
-  return I18N[lang] || I18N.en;
+  // Merge over English so newly added keys gracefully fall back
+  // for languages that don't define them yet.
+  const base = I18N.en as Record<string, string>;
+  const override = (I18N[lang] || I18N.en) as Record<string, string>;
+  return { ...base, ...override } as typeof I18N.en;
 }

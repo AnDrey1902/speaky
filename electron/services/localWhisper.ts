@@ -5,6 +5,7 @@ import os from 'os';
 import readline from 'readline';
 import { app } from 'electron';
 import { TranscriptionResult } from './sttService';
+import { getCatalogEntry, getModelsDir, isModelInstalled as isModelInstalledByEntry, findCustomModel } from './modelManager';
 
 let workerProcess: ChildProcess | null = null;
 let workerRl: readline.Interface | null = null;
@@ -62,7 +63,8 @@ function getWorker(): ChildProcess {
 
   workerProcess = spawn('python', [scriptPath], {
     windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe']
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, SPEAKY_MODELS_DIR: getModelsDir() }
   });
 
   if (workerProcess.stdout) {
@@ -137,11 +139,25 @@ function sendWorkerCommand(cmd: Record<string, any>, timeoutMs = 25000): Promise
 export async function transcribeAudioLocal(
   audioBuffer: Buffer,
   mimeType = 'audio/wav',
-  language = 'ru'
+  language = 'ru',
+  modelId?: string
 ): Promise<TranscriptionResult> {
   const startTime = Date.now();
   const ext = mimeType.includes('webm') ? '.webm' : '.wav';
   const tempPath = path.join(os.tmpdir(), `speaky_local_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+
+  // Resolve engine + model path: custom folder first, then the Speaky catalog
+  const custom = modelId ? findCustomModel(modelId) : undefined;
+  const entry = custom ? undefined : getCatalogEntry(modelId || 'whisper-large-v3-turbo');
+  const engine = custom?.engine || entry?.engine || 'faster-whisper';
+  const resolvedId = custom?.id || entry?.id || modelId || 'whisper-small';
+  const engineModelId = custom?.engineModelId || entry?.engineModelId;
+  let modelPath: string | undefined;
+  if (custom) {
+    modelPath = custom.path;
+  } else if (entry && isModelInstalledByEntry(entry)) {
+    modelPath = path.join(getModelsDir(), entry.engine, entry.id);
+  }
 
   try {
     await fs.promises.writeFile(tempPath, audioBuffer);
@@ -149,8 +165,12 @@ export async function transcribeAudioLocal(
     const res = await sendWorkerCommand({
       action: 'transcribe',
       path: tempPath,
-      language
-    }, 30000);
+      language,
+      engine,
+      modelId: resolvedId,
+      engineModelId,
+      modelPath
+    }, 60000);
 
     if (res.status !== 'ok') {
       throw new Error(res.message || 'Ошибка локального распознавания');

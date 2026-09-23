@@ -53,7 +53,7 @@ async function fetchLatestGitHubRelease(): Promise<{
   fileName: string;
   fileSize: number;
 } | null> {
-  const res = await getJson('https://api.github.com/repos/anufriev163/speaking/releases/latest', {
+  const res = await getJson('https://api.github.com/repos/AnDrey1902/speaky/releases/latest', {
     'User-Agent': 'speaky-desktop',
     'Accept': 'application/vnd.github.v3+json'
   });
@@ -178,8 +178,8 @@ export function initAutoUpdater(getSettingsWin: () => BrowserWindow | null) {
   try {
     autoUpdater.setFeedURL({
       provider: 'github',
-      owner: 'anufriev163',
-      repo: 'speaking'
+      owner: 'AnDrey1902',
+      repo: 'speaky'
     });
   } catch (err) {
     console.warn('[AutoUpdater] Failed to set explicit feed URL:', err);

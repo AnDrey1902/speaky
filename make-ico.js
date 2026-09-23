@@ -13,37 +13,61 @@ function crc32(buf) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+// Speaky voice-waveform polyline (from SpeakyLogo.tsx, 32-unit viewBox).
+// Arcs in the original path are flattened — visually identical at icon sizes.
+const WAVE_POINTS = [
+  [5, 16], [8, 16], [10.2, 9.6], [12.1, 9.65], [14, 22],
+  [16.3, 12.8], [18.24, 12.7], [19.6, 18], [21.4, 14.6],
+  [23.2, 14.65], [24, 19], [27, 16]
+];
+
+// Tailwind indigo-500 → violet-600 (bg-gradient-to-br in SpeakyLogo.tsx)
+const GRAD_FROM = [99, 102, 241];
+const GRAD_TO = [124, 58, 237];
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  let t = lenSq === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function minDistToWave(x, y) {
+  let min = Infinity;
+  for (let i = 0; i < WAVE_POINTS.length - 1; i++) {
+    const d = distToSegment(x, y,
+      WAVE_POINTS[i][0], WAVE_POINTS[i][1],
+      WAVE_POINTS[i + 1][0], WAVE_POINTS[i + 1][1]);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
 function renderPixels(size) {
   const pixels = Buffer.alloc(size * size * 4);
-  const cornerRadius = size * 0.22;
+  const scale = size / 32;
+  const cornerRadius = size * 0.25; // rounded-[8px] on a 32 tile
   const padding = size * 0.04;
   const minX = padding;
   const maxX = size - padding;
   const minY = padding;
   const maxY = size - padding;
 
-  const cy = size / 2;
-  const waveHeights = [0.2, 0.45, 0.72, 0.9, 0.65, 0.38, 0.18];
-  const numBars = waveHeights.length;
-  const barWidth = Math.max(1.5, size * 0.055);
-  const spacing = (size * 0.65) / (numBars - 1);
-  const startX = size * 0.175;
+  const halfStroke = (2.1 * scale) / 2;
+  const glowR = 11 * scale; // soft inner glow circle (r=11)
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const idx = (y * size + x) * 4;
 
-      // Squircle check
-      let inSquircle = false;
-      if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
-        let cx = x < minX + cornerRadius ? minX + cornerRadius : x > maxX - cornerRadius ? maxX - cornerRadius : x;
-        let cyPos = y < minY + cornerRadius ? minY + cornerRadius : y > maxY - cornerRadius ? maxY - cornerRadius : y;
-        if (Math.hypot(x - cx, y - cyPos) <= cornerRadius) {
-          inSquircle = true;
-        }
-      }
-
-      if (!inSquircle) {
+      // Rounded-rect (squircle) with 1px anti-aliased edge
+      const cx = x < minX + cornerRadius ? minX + cornerRadius : x > maxX - cornerRadius ? maxX - cornerRadius : x;
+      const cy = y < minY + cornerRadius ? minY + cornerRadius : y > maxY - cornerRadius ? maxY - cornerRadius : y;
+      const edgeDist = Math.hypot(x - cx, y - cy) - cornerRadius;
+      const alphaCov = Math.max(0, Math.min(1, 0.5 - edgeDist));
+      if (alphaCov <= 0) {
         pixels[idx] = 0;
         pixels[idx + 1] = 0;
         pixels[idx + 2] = 0;
@@ -51,41 +75,28 @@ function renderPixels(size) {
         continue;
       }
 
-      // Check waveform bars
-      let inWaveBar = false;
-      for (let b = 0; b < numBars; b++) {
-        const bx = startX + b * spacing;
-        const bHeight = size * 0.6 * waveHeights[b];
-        const halfH = bHeight / 2;
-        const barRadius = barWidth / 2;
+      // Diagonal gradient background (to-br)
+      const t = Math.max(0, Math.min(1, (x / Math.max(1, size - 1) + y / Math.max(1, size - 1)) / 2));
+      let r = GRAD_FROM[0] + (GRAD_TO[0] - GRAD_FROM[0]) * t;
+      let g = GRAD_FROM[1] + (GRAD_TO[1] - GRAD_FROM[1]) * t;
+      let b = GRAD_FROM[2] + (GRAD_TO[2] - GRAD_FROM[2]) * t;
 
-        if (Math.abs(x - bx) <= barRadius) {
-          if (Math.abs(y - cy) <= halfH) {
-            inWaveBar = true;
-            break;
-          } else if (Math.abs(y - cy) <= halfH + barRadius) {
-            const capY = y > cy ? cy + halfH : cy - halfH;
-            if (Math.hypot(x - bx, y - capY) <= barRadius) {
-              inWaveBar = true;
-              break;
-            }
-          }
-        }
-      }
+      // Soft inner glow: white at 10% opacity inside r=11
+      const glowCov = Math.max(0, Math.min(1, glowR + 0.5 - Math.hypot(x - size / 2, y - size / 2))) * 0.1;
+      r += (255 - r) * glowCov;
+      g += (255 - g) * glowCov;
+      b += (255 - b) * glowCov;
 
-      if (inWaveBar) {
-        pixels[idx] = 255;
-        pixels[idx + 1] = 255;
-        pixels[idx + 2] = 255;
-        pixels[idx + 3] = 255;
-      } else {
-        const dist = Math.hypot(x - size / 2, y - size / 2);
-        const shade = Math.max(14, Math.round(22 - (dist / size) * 8));
-        pixels[idx] = shade;
-        pixels[idx + 1] = shade;
-        pixels[idx + 2] = shade + 2;
-        pixels[idx + 3] = 255;
-      }
+      // White waveform stroke, anti-aliased
+      const strokeCov = Math.max(0, Math.min(1, halfStroke + 0.5 - minDistToWave(x, y)));
+      r += (255 - r) * strokeCov;
+      g += (255 - g) * strokeCov;
+      b += (255 - b) * strokeCov;
+
+      pixels[idx] = Math.round(r);
+      pixels[idx + 1] = Math.round(g);
+      pixels[idx + 2] = Math.round(b);
+      pixels[idx + 3] = Math.round(alphaCov * 255);
     }
   }
 
@@ -146,7 +157,7 @@ function makeDibFromPixels(size, rgba) {
   header.writeUInt16LE(1, 12); // biPlanes
   header.writeUInt16LE(32, 14); // biBitCount (32-bit BGRA)
   header.writeUInt32LE(0, 16); // biCompression (BI_RGB)
-  
+
   const xorSize = size * size * 4;
   const andRowBytes = Math.ceil(size / 32) * 4;
   const andSize = andRowBytes * size;
@@ -214,37 +225,37 @@ function createIco(entries) {
   return Buffer.concat([header, ...dirEntries, ...entries.map(e => e.data)]);
 }
 
-const sizes = [16, 24, 32, 48, 64, 128, 256];
+const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+const pngSizes = [16, 32, 48, 256, 512, 1024];
 const assetsDir = path.join(__dirname, 'assets');
 if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
 
 const icoEntries = [];
+const pngBuffers = {};
 
-for (const s of sizes) {
+for (const s of icoSizes) {
   const pixels = renderPixels(s);
-  const pngBuf = makePngFromPixels(s, pixels);
-
-  // Save PNG for standard sizes
-  if ([16, 32, 48, 256].includes(s)) {
-    fs.writeFileSync(path.join(assetsDir, `icon-${s}.png`), pngBuf);
-  }
-  if (s === 256) {
-    fs.writeFileSync(path.join(assetsDir, 'icon.png'), pngBuf);
-  }
+  pngBuffers[s] = makePngFromPixels(s, pixels);
 
   // For Windows ICO:
   // <= 128 MUST be DIB format for Windows Explorer / Desktop rendering
   // 256 can be PNG (Vista+ standard)
   if (s <= 128) {
-    const dibBuf = makeDibFromPixels(s, pixels);
-    icoEntries.push({ size: s, data: dibBuf });
+    icoEntries.push({ size: s, data: makeDibFromPixels(s, pixels) });
   } else {
-    icoEntries.push({ size: s, data: pngBuf });
+    icoEntries.push({ size: s, data: pngBuffers[s] });
   }
 }
+
+for (const s of pngSizes) {
+  if (!pngBuffers[s]) pngBuffers[s] = makePngFromPixels(s, renderPixels(s));
+  fs.writeFileSync(path.join(assetsDir, `icon-${s}.png`), pngBuffers[s]);
+}
+
+// electron-builder default icon (mac/linux) — 512x512
+fs.writeFileSync(path.join(assetsDir, 'icon.png'), pngBuffers[512]);
 
 const icoBuffer = createIco(icoEntries);
 fs.writeFileSync(path.join(assetsDir, 'icon.ico'), icoBuffer);
 
-console.log('Valid multi-format Windows ICO generated. Total size:', icoBuffer.length, 'bytes');
-
+console.log('Speaky ICO/PNG generated. ICO size:', icoBuffer.length, 'bytes');

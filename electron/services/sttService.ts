@@ -62,8 +62,8 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType = 'audio/wav
   // 1. Direct Local Provider
   if (provider === 'local') {
     try {
-      console.log(`[STT] Using local Whisper engine (${speechLang})...`);
-      const localRes = await transcribeAudioLocal(audioBuffer, mimeType, speechLang);
+      console.log(`[STT] Using local engine, model=${settings.localModelId} (${speechLang})...`);
+      const localRes = await transcribeAudioLocal(audioBuffer, mimeType, speechLang, settings.localModelId);
       return {
         ...localRes,
         providerUsed: 'local'
@@ -81,8 +81,8 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType = 'audio/wav
     // If no API key, try local whisper if available before complaining
     const localCheck = await checkLocalWhisperAvailable();
     if (localCheck.available) {
-      console.log('[STT] No API key, seamlessly falling back to local Whisper...');
-      const localRes = await transcribeAudioLocal(audioBuffer, mimeType, speechLang);
+      console.log('[STT] No API key, seamlessly falling back to local model...');
+      const localRes = await transcribeAudioLocal(audioBuffer, mimeType, speechLang, settings.localModelId);
       return {
         ...localRes,
         providerUsed: 'local-fallback',
@@ -91,7 +91,7 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType = 'audio/wav
     }
 
     return {
-      text: 'Speaky работает! Пожалуйста, укажите API-ключ Groq или OpenAI в настройках приложения.',
+      text: 'Speaky работает! Укажите API-ключ провайдера в настройках или выберите локальную модель.',
       durationSeconds: 1,
       latencyMs: Date.now() - startTime
     };
@@ -195,8 +195,9 @@ async function attemptLocalFallback(
     throw new Error('Локальный движок не установлен');
   }
 
-  console.log('[STT] Executing local Whisper offline fallback...');
-  const localRes = await transcribeAudioLocal(audioBuffer, mimeType, language);
+  console.log('[STT] Executing local model offline fallback...');
+  const localModelId = storage.getSettings().localModelId;
+  const localRes = await transcribeAudioLocal(audioBuffer, mimeType, language, localModelId);
   return {
     ...localRes,
     providerUsed: 'local-fallback',

@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Settings, Sparkles, Check, AlertCircle, Loader2, X } from 'lucide-react';
+import { Mic, Settings, Sparkles, Check, AlertCircle, Loader2, X, Languages } from 'lucide-react';
 import { Waveform } from './Waveform';
 import { CapsuleBorder } from './CapsuleBorder';
-import { SpeakyLogo } from '../common/SpeakyLogo';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
-import { ActiveContext, HudState, UILanguage } from '../../types';
+import { ActiveContext, HudState, UILanguage, DictationMode } from '../../types';
 import { soundEffects } from '../../utils/soundEffects';
 import { getTranslations } from '../../utils/i18n';
 
@@ -29,6 +28,7 @@ export const FloatingHud: React.FC = () => {
   const [uiLanguage, setUiLanguage] = useState<UILanguage>('auto');
   const [appMode, setAppMode] = useState<'toggle' | 'ptt'>('toggle');
   const [savedMacroInfo, setSavedMacroInfo] = useState<{ trigger: string; replacement: string } | null>(null);
+  const [dictationMode, setDictationMode] = useState<DictationMode>('dictation');
 
   const t = getTranslations(uiLanguage);
 
@@ -41,6 +41,11 @@ export const FloatingHud: React.FC = () => {
   const isRecordingRef = useRef<boolean>(false);
   const isTransitioningRef = useRef<boolean>(false);
   const recordStartTimeRef = useRef<number>(0);
+  const hudStateRef = useRef<HudState>('idle');
+
+  useEffect(() => {
+    hudStateRef.current = hudState;
+  }, [hudState]);
 
   const handleToggleRecordingRef = useRef<() => void>(() => {});
 
@@ -76,6 +81,7 @@ export const FloatingHud: React.FC = () => {
         setSelectionInfo({ hasSelection: false, snippet: '' });
         setIsRewriteResult(false);
         setSavedMacroInfo(null);
+        setDictationMode('dictation');
       }, 380);
     }, delayMs);
   };
@@ -132,7 +138,7 @@ export const FloatingHud: React.FC = () => {
       const arrayBuffer = await audioBlob.arrayBuffer();
 
       if (window.speakyAPI) {
-        const result = await window.speakyAPI.transcribeAudio(arrayBuffer, audioBlob.type);
+        const result = await window.speakyAPI.transcribeAudio(arrayBuffer, audioBlob.type, dictationMode);
 
         if (result.success && result.text) {
           soundEffects.playSuccess();
@@ -276,7 +282,11 @@ export const FloatingHud: React.FC = () => {
 
     const unsubHotkey = window.speakyAPI.onTriggerRecording((action: string) => {
       if (action === 'toggle') {
+        if (hudStateRef.current !== 'recording') setDictationMode('dictation');
         handleToggleRecordingRef.current();
+      } else if (action === 'translate') {
+        setDictationMode('translate');
+        startRecordingAction();
       } else if (action === 'start') {
         startRecordingAction();
       } else if (action === 'stop') {
@@ -402,7 +412,7 @@ export const FloatingHud: React.FC = () => {
           onClick={handleCapsuleClick}
           className={`wispr-capsule cursor-grab active:cursor-grabbing select-none ${
             (isRecording || hudState === 'recording') ? 'wispr-capsule-recording' : ''
-          }`}
+          } ${dictationMode === 'translate' ? 'wispr-capsule-mode-translate' : ''}`}
         >
           {/* Unified capsule border: permanent 1px base + traveling tapered white beam */}
           <CapsuleBorder isRecording={isRecording || hudState === 'recording'} />
@@ -420,10 +430,24 @@ export const FloatingHud: React.FC = () => {
 
           {/* Center: Waveform / Status */}
           <div className="flex items-center justify-center min-w-[70px] px-1 relative z-10">
+            {dictationMode === 'translate' && hudState !== 'idle' && hudState !== 'error' && (
+              <span
+                className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-indigo-300 bg-indigo-500/15 border border-indigo-500/40 px-1.5 py-0.5 rounded-full mr-1 shrink-0"
+                title={t.translateTitle}
+              >
+                <Languages className="w-3 h-3" /> {t.tabTranslate}
+              </span>
+            )}
             {hudState === 'processing' ? (
               <div className="flex items-center gap-2 px-2 text-white/90 text-xs font-medium">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                <span className="text-[11px] tracking-tight">{selectionInfo.hasSelection ? t.hudRewriting : t.hudProcessing}</span>
+                <span className="text-[11px] tracking-tight">
+                  {dictationMode === 'translate'
+                    ? t.hudTranslating
+                    : selectionInfo.hasSelection
+                    ? t.hudRewriting
+                    : t.hudProcessing}
+                </span>
               </div>
             ) : hudState === 'success' ? (
               <div className="flex items-center gap-1.5 px-2 text-white text-xs font-medium max-w-[200px] truncate">

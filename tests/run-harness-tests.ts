@@ -44,7 +44,7 @@ function assertEquals(actual: any, expected: any, msg?: string) {
 
 async function runTestSuite() {
   console.log('\n========================================');
-  console.log('   ТЕСТИРОВАНИЕ HARNESS СЛОЯ «SPEAKY AI»');
+  console.log('   ТЕСТИРОВАНИЕ HARNESS СЛОЯ «SPEAKY»');
   console.log('========================================\n');
 
   // ----------------------------------------------------
@@ -146,7 +146,7 @@ async function runTestSuite() {
   await test('Context', 'Обогащение контекста активного окна', async () => {
     const enriched = await contextMgr.getEnrichedContext({
       processName: 'Code.exe',
-      windowTitle: 'main.ts — speaky',
+      windowTitle: 'main.ts — Speaky',
       category: 'code',
       categoryLabel: 'IDE'
     });

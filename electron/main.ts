@@ -21,8 +21,17 @@ import { injectTextUnicode, simulateCopy, rememberForegroundWindow } from './ser
 import { transcribeAudio } from './services/sttService';
 import { checkLocalWhisperAvailable, shutdownLocalWhisper } from './services/localWhisper';
 import { cleanTextRules, refineTextWithLLM } from './services/llmProcessor';
+import {
+  getCatalogStatus,
+  downloadModel,
+  removeModel,
+  checkEngine,
+  validateModelFolder,
+  registerCustomModel,
+  unregisterCustomModel
+} from './services/modelManager';
 import { harness } from './harness';
-import { ActiveContext } from '../src/types';
+import { ActiveContext, DictationMode, ModelEngine, ModelProgressEvent } from '../src/types';
 import { initAutoUpdater } from './services/updaterService';
 
 import net from 'net';
@@ -254,11 +263,11 @@ function createSettingsWindow() {
     height: 700,
     minWidth: 800,
     minHeight: 550,
-    frame: true,
+    frame: false,
     center: true,
-    title: 'speaky',
+    title: 'Speaky',
     autoHideMenuBar: true,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#09090b',
     show: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -370,7 +379,7 @@ function getTrayLabels() {
       settings: 'Настройки и профили',
       showWidget: 'Показать виджет',
       exit: 'Выход',
-      tooltip: 'speaky — голосовой ввод'
+      tooltip: 'Speaky — голосовой ввод'
     };
   }
 
@@ -378,7 +387,7 @@ function getTrayLabels() {
     settings: 'Settings & Profiles',
     showWidget: 'Show Widget',
     exit: 'Exit',
-    tooltip: 'speaky — AI Voice Assistant'
+    tooltip: 'Speaky — AI Voice Assistant'
   };
 }
 
@@ -453,11 +462,19 @@ async function captureActiveSelection(): Promise<string> {
 function registerHotkeys() {
   globalShortcut.unregisterAll();
 
-  // On Windows Control+~ / Control+`, on macOS CommandOrControl+~
+  const settings = storage.getSettings();
   const isMac = process.platform === 'darwin';
-  const primaryKeys = isMac
-    ? ['CommandOrControl+`', 'CommandOrControl+~', 'Option+Space']
-    : ['Control+`', 'Control+~'];
+  const configured = settings.hotkey || 'Ctrl+~';
+  const normalized = configured
+    .replace(/\bCtrl\b/gi, isMac ? 'CommandOrControl' : 'Control')
+    .replace(/\bCmd\b/gi, 'CommandOrControl')
+    .replace(/\bMeta\b/gi, 'Super');
+  const primaryKeys = [
+    ...new Set([
+      normalized,
+      ...(isMac ? ['CommandOrControl+`', 'CommandOrControl+~'] : ['Control+`', 'Control+~'])
+    ])
+  ];
   let registered = false;
 
   for (const key of primaryKeys) {
@@ -525,9 +542,72 @@ function registerHotkeys() {
   }
 
   if (registered) {
-    storage.updateSettings({ hotkey: 'Ctrl+~' });
+    console.log('[Hotkeys] Primary hotkey active.');
   } else {
-    console.warn('[Hotkeys] Could not register Ctrl+~ shortcut.');
+    console.warn('[Hotkeys] Could not register primary shortcut.');
+  }
+}
+
+/* ── Translate-mode hotkey (separate shortcut) ────────────────────── */
+let lastTranslateTimestamp = 0;
+
+function registerTranslateHotkey() {
+  try {
+    globalShortcut.unregister('Control+Shift+`');
+    globalShortcut.unregister('Control+Shift+~');
+  } catch {}
+
+  const settings = storage.getSettings();
+  if (settings.translateEnabled === false) return;
+
+  const isMac = process.platform === 'darwin';
+  const configured = settings.translateHotkey || 'Ctrl+Shift+`';
+  const candidates = [
+    ...new Set([
+      configured,
+      ...(isMac ? ['CommandOrControl+Shift+`'] : ['Control+Shift+`', 'Control+Shift+~'])
+    ])
+  ];
+
+  for (const key of candidates) {
+    try {
+      const success = globalShortcut.register(key, () => {
+        const now = Date.now();
+        if (now - lastTranslateTimestamp < 350) return;
+        lastTranslateTimestamp = now;
+
+        rememberForegroundWindow();
+        lastActiveContext = detectActiveContext();
+
+        if (!hudWindow || hudWindow.isDestroyed()) {
+          createHudWindow();
+        }
+        if (hudWindow && !hudWindow.isDestroyed()) {
+          const s = storage.getSettings();
+          const bounds = screen.getPrimaryDisplay().bounds;
+          let posX = s.hudPosition?.x;
+          let posY = s.hudPosition?.y;
+          if (posX === undefined || posY === undefined) {
+            posX = Math.round(bounds.x + (bounds.width - 520) / 2);
+            posY = Math.round(bounds.y + bounds.height - 140 - 16);
+          }
+          hudWindow.setPosition(posX, posY);
+          hudWindow.showInactive();
+          hudWindow.setAlwaysOnTop(true, 'screen-saver');
+          hudWindow.moveTop();
+          hudWindow.webContents.send('context:changed', lastActiveContext);
+          console.log(`[Hotkeys] Translate Triggered: ${key}`);
+          hudWindow.webContents.send('hotkey:trigger', 'translate');
+        }
+      });
+
+      if (success) {
+        console.log(`[Hotkeys] Successfully registered translate: ${key}`);
+        break;
+      }
+    } catch (err) {
+      console.warn(`[Hotkeys] Translate key ${key} could not be registered:`, err);
+    }
   }
 }
 
@@ -559,20 +639,6 @@ function applyAutoStart(enabled: boolean) {
           else console.log('[AutoStart] Removed from HKCU Run registry');
         });
       }
-
-      // Cleanup legacy VBScript if present in Startup
-      const startupFolder = path.join(
-        process.env.APPDATA || '',
-        'Microsoft',
-        'Windows',
-        'Start Menu',
-        'Programs',
-        'Startup'
-      );
-      const legacyVbs = path.join(startupFolder, 'SpeakyAI.vbs');
-      if (fs.existsSync(legacyVbs)) {
-        try { fs.unlinkSync(legacyVbs); } catch {}
-      }
     }
   } catch (err) {
     console.error('[AutoStart] Error applying autostart:', err);
@@ -581,11 +647,29 @@ function applyAutoStart(enabled: boolean) {
 
 // IPC Handlers
 function setupIpcHandlers() {
+  ipcMain.handle('hotkeys:check', (_event, accelerator: string) => {
+    if (!accelerator) return { available: false, error: 'Пустое сочетание' };
+    try {
+      const ok = globalShortcut.register(accelerator, () => {});
+      if (ok) {
+        try { globalShortcut.unregister(accelerator); } catch {}
+        return { available: true };
+      }
+      return { available: false, error: 'Сочетание занято другим приложением' };
+    } catch (err: any) {
+      return { available: false, error: err?.message || 'Некорректное сочетание' };
+    }
+  });
+
   ipcMain.handle('storage:get-settings', () => storage.getSettings());
   ipcMain.handle('storage:update-settings', (_event, newSettings) => {
     const updated = storage.updateSettings(newSettings);
     if (newSettings.hotkey || newSettings.mode) {
       registerHotkeys();
+      registerTranslateHotkey();
+    }
+    if (newSettings.translateHotkey !== undefined || newSettings.translateEnabled !== undefined) {
+      registerTranslateHotkey();
     }
     if (newSettings.autoStart !== undefined) {
       applyAutoStart(newSettings.autoStart);
@@ -606,6 +690,57 @@ function setupIpcHandlers() {
 
   ipcMain.handle('storage:get-snippets', () => storage.getSnippets());
   ipcMain.handle('storage:save-snippets', (_event, snippets) => storage.saveSnippets(snippets));
+
+  ipcMain.handle('storage:get-prompts', () => storage.getPrompts());
+  ipcMain.handle('storage:save-prompts', (_event, prompts) => storage.savePrompts(prompts));
+
+  /* ── Local model manager ── */
+  ipcMain.handle('models:catalog', () => getCatalogStatus());
+  ipcMain.handle('models:download', async (_event, modelId: string) => {
+    const sendProgress = (ev: ModelProgressEvent) => {
+      for (const win of [hudWindow, settingsWindow]) {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('model:progress', ev);
+        }
+      }
+    };
+    try {
+      sendProgress({ modelId, state: 'downloading', percent: 0 });
+      const { promise } = downloadModel(modelId, sendProgress);
+      await promise;
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Ошибка скачивания' };
+    }
+  });
+  ipcMain.handle('models:remove', (_event, modelId: string) => {
+    try {
+      removeModel(modelId);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Ошибка удаления' };
+    }
+  });
+  ipcMain.handle('models:check-engine', (_event, engine: ModelEngine) => checkEngine(engine));
+
+  ipcMain.handle('models:pick-folder', async () => {
+    const win = settingsWindow || BrowserWindow.getFocusedWindow() || undefined;
+    const res = await dialog.showOpenDialog(win as any, {
+      title: 'Выберите папку с моделью',
+      properties: ['openDirectory']
+    });
+    if (res.canceled || !res.filePaths[0]) return null;
+    const dir = res.filePaths[0];
+    const check = validateModelFolder(dir);
+    return {
+      path: dir,
+      suggestedName: path.basename(dir),
+      detectedEngine: check.ok ? check.engine : undefined
+    };
+  });
+
+  ipcMain.handle('models:register-custom', (_event, model) => registerCustomModel(model));
+  ipcMain.handle('models:unregister-custom', (_event, modelId: string) => unregisterCustomModel(modelId));
 
   ipcMain.handle('storage:get-history', () => storage.getHistory());
   ipcMain.handle('storage:clear-history', () => storage.clearHistory());
@@ -667,7 +802,7 @@ function setupIpcHandlers() {
     return injectTextUnicode(text);
   });
 
-  ipcMain.handle('stt:transcribe', async (_event, audioArrayBuffer: ArrayBuffer, mimeType = 'audio/wav') => {
+  ipcMain.handle('stt:transcribe', async (_event, audioArrayBuffer: ArrayBuffer, mimeType = 'audio/wav', mode: DictationMode = 'dictation') => {
     const audioBuffer = Buffer.from(audioArrayBuffer);
     const context = lastActiveContext || detectActiveContext();
     const selectedText = currentSelectionText;
@@ -677,7 +812,8 @@ function setupIpcHandlers() {
       audioBuffer,
       mimeType,
       requestedContext: context,
-      selectedText
+      selectedText,
+      mode
     });
 
     if (result.macroCreated && settingsWindow && !settingsWindow.isDestroyed()) {
@@ -759,6 +895,7 @@ if (gotTheLock) {
 
     createTray();
     registerHotkeys();
+    registerTranslateHotkey();
 
     // Apply autostart state if configured
     if (settings.autoStart) {

@@ -1,4 +1,4 @@
-import { ActiveContext, AppSettings } from '../../src/types';
+import { ActiveContext, AppSettings, DictationMode } from '../../src/types';
 
 export type HarnessState = 
   | 'IDLE' 
@@ -55,6 +55,8 @@ export interface HarnessPipelineInput {
   mimeType: string;
   requestedContext?: ActiveContext;
   selectedText?: string;
+  /** dictation (default) or translate-mode dictation */
+  mode?: DictationMode;
 }
 
 export interface HarnessPipelineOutput {
@@ -65,6 +67,7 @@ export interface HarnessPipelineOutput {
   latencyMs: number;
   injected: boolean;
   isRewrite?: boolean;
+  isTranslate?: boolean;
   macroCreated?: { trigger: string; replacement: string };
   macroSaved?: { trigger: string; replacement: string };
   error?: string;

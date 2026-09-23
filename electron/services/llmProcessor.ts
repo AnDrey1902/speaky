@@ -1,4 +1,4 @@
-import { ActiveContext } from '../../src/types';
+import { ActiveContext, LLMProvider } from '../../src/types';
 import { storage } from './storage';
 import { postJson } from './httpClient';
 
@@ -63,9 +63,7 @@ export function cleanTextRules(text: string, context: ActiveContext): string {
 
   // 6. Context-aware adaptations (works even offline without LLM)
   if (context.category === 'code' || context.category === 'terminal') {
-    // In code/terminal, don't end with a trailing period
     cleaned = cleaned.replace(/\.$/, '');
-    // Common spoken dev shorthand & symbols
     cleaned = cleaned
       .replace(/(?<![а-яёa-z0-9])гит\s+статус(?![а-яёa-z0-9])/gi, 'git status')
       .replace(/(?<![а-яёa-z0-9])гит\s+коммит(?![а-яёa-z0-9])/gi, 'git commit')
@@ -76,18 +74,15 @@ export function cleanTextRules(text: string, context: ActiveContext): string {
       .replace(/(?<![а-яёa-z0-9])стрелочка(?![а-яёa-z0-9])/gi, '=>')
       .replace(/(?<![а-яёa-z0-9])равно(?![а-яёa-z0-9])/gi, '=');
   } else if (context.category === 'chat') {
-    // In messengers, short single-line phrases feel awkward with a trailing period
     if (!cleaned.includes('\n') && cleaned.split(' ').length <= 15) {
       cleaned = cleaned.replace(/\.$/, '');
     }
-    // Natural emoji vocalizations
     cleaned = cleaned
       .replace(/(?<![а-яёa-z0-9])(?:смайлик|улыбка)(?![а-яёa-z0-9])/gi, '😊')
       .replace(/(?<![а-яёa-z0-9])сердечко(?![а-яёa-z0-9])/gi, '❤️')
       .replace(/(?<![а-яёa-z0-9])огонь(?![а-яёa-z0-9])/gi, '🔥')
       .replace(/(?<![а-яёa-z0-9])палец\s+вверх(?![а-яёa-z0-9])/gi, '👍');
   } else if (context.category === 'document') {
-    // Russian typographic quotes and dashes
     cleaned = cleaned
       .replace(/"([^"]+)"/g, '«$1»')
       .replace(/\s+-\s+/g, ' — ');
@@ -101,16 +96,140 @@ export function cleanTextRules(text: string, context: ActiveContext): string {
   return cleaned;
 }
 
+/* ── Shared LLM chat helper ─────────────────────────────────────────── */
+
+interface LLMCall {
+  url: string;
+  apiKey: string;
+  model: string;
+  maxTokens: number;
+}
+
+function buildCall(
+  provider: LLMProvider,
+  settings: ReturnType<typeof storage.getSettings>,
+  maxTokens: number
+): LLMCall | null {
+  const modelOverride = settings.llmModels?.[provider];
+  switch (provider) {
+    case 'groq':
+      return settings.groqApiKey
+        ? {
+            url: 'https://api.groq.com/openai/v1/chat/completions',
+            apiKey: settings.groqApiKey,
+            model: modelOverride || 'llama-3.3-70b-versatile',
+            maxTokens
+          }
+        : null;
+    case 'openai':
+      return settings.openaiApiKey
+        ? {
+            url: 'https://api.openai.com/v1/chat/completions',
+            apiKey: settings.openaiApiKey,
+            model: modelOverride || 'gpt-4o-mini',
+            maxTokens
+          }
+        : null;
+    case 'gemini':
+      // Gemini exposes an OpenAI-compatible endpoint
+      return settings.geminiApiKey
+        ? {
+            url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+            apiKey: settings.geminiApiKey,
+            model: modelOverride || 'gemini-2.5-flash',
+            maxTokens
+          }
+        : null;
+    case 'openai-compatible': {
+      if (!settings.customLlmBaseUrl || !modelOverride) return null;
+      const base = settings.customLlmBaseUrl.trim().replace(/\/+$/, '');
+      const url = /\/chat\/completions$/.test(base)
+        ? base
+        : /\/v\d+$/.test(base)
+        ? `${base}/chat/completions`
+        : `${base}/v1/chat/completions`;
+      return { url, apiKey: settings.customLlmApiKey || '', model: modelOverride, maxTokens };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Returns LLM endpoints ordered by the user-chosen post-processing provider,
+ * with every other configured provider as fallback.
+ */
+function orderedLLMCalls(maxTokens: number): LLMCall[] {
+  const settings = storage.getSettings();
+  const primary: LLMProvider = settings.llmProvider || 'groq';
+  const all: LLMProvider[] = ['groq', 'openai', 'gemini', 'openai-compatible'];
+  const order = [primary, ...all.filter((p) => p !== primary)];
+  return order
+    .map((p) => buildCall(p, settings, maxTokens))
+    .filter((c): c is LLMCall => Boolean(c));
+}
+
+/** Whether at least one LLM provider is configured */
+export function hasConfiguredLLM(): boolean {
+  return orderedLLMCalls(1).length > 0;
+}
+
+async function chatCompletion(call: LLMCall, systemPrompt: string, userPrompt: string, temperature: number): Promise<string | null> {
+  try {
+    const headers: Record<string, string> = call.apiKey
+      ? { Authorization: `Bearer ${call.apiKey}` }
+      : {};
+    const res = await postJson(
+      call.url,
+      headers,
+      {
+        model: call.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature,
+        max_tokens: call.maxTokens
+      }
+    );
+    if (res.ok) {
+      const data: any = await res.json();
+      const output = data.choices?.[0]?.message?.content?.trim();
+      if (output) return output;
+    } else {
+      console.warn(`[LLM] ${call.model} HTTP ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(`[LLM] ${call.model} request failed:`, err);
+  }
+  return null;
+}
+
+/** Resolve the active user-defined post-processing prompt template. */
+function activeSystemPrompt(): string {
+  const prompts = storage.getPrompts();
+  const settings = storage.getSettings();
+  const active =
+    prompts.find((p) => p.id === settings.activePromptId) ||
+    prompts.find((p) => p.isDefault) ||
+    prompts[0];
+  return (
+    active?.body ||
+    'Ты — AI-корректор надиктованной речи. Убери слова-паразиты, исправь ошибки и расставь пунктуацию. Верни ТОЛЬКО готовый текст.'
+  );
+}
+
+/* ── Post-processing ────────────────────────────────────────────────── */
+
 /**
  * AI Speech Text Corrector:
- * Ultra-fast LLM cleanup via Groq (Llama-3.3-70b-versatile, ~200ms)
- * with automatic fallback to OpenAI (gpt-4o-mini) and offline rules.
+ * Uses the active custom prompt template with the configured LLM provider
+ * (Groq Llama-3.3-70b / OpenAI gpt-4o-mini), rule-based fallback offline.
  */
 export async function refineTextWithLLM(text: string, context: ActiveContext): Promise<string> {
   const settings = storage.getSettings();
 
-  // If AI correction disabled or no keys provided, use instant rule-based cleaner
-  if (settings.aiCorrection === false || (!settings.groqApiKey && !settings.openaiApiKey)) {
+  if (settings.aiCorrection === false || !hasConfiguredLLM()) {
     return cleanTextRules(text, context);
   }
 
@@ -118,166 +237,93 @@ export async function refineTextWithLLM(text: string, context: ActiveContext): P
   if (context.category === 'code' || context.category === 'terminal') {
     styleInstruction = 'Редактор кода/терминал. Технические термины, переменные и команды пиши на правильном английском (camelCase, snake_case, git команды). В конце строки не ставь точку.';
   } else if (context.category === 'chat') {
-    styleInstruction = 'Мессенджер/чат. Живой и лаконичный разговорный тон, без лишней бюрократии. Не ставь точку в конце коротких фраз.';
+    styleInstruction = 'Мессенджер/чат. Живой и лаконичный разговорный тон. Не ставь точку в конце коротких фраз.';
   } else if (context.category === 'document') {
     styleInstruction = 'Деловой документ. Строгий стиль, кавычки-ёлочки («»), длинные тире (—), суммы и числа цифрами.';
   }
 
-  const systemPrompt = `Ты — сверхбыстрый AI-корректор надиктованной речи для Windows.
-Твоя задача:
-1. Исправить орфографию, грамматику и расставить естественную пунктуацию.
-2. Удалить слова-паразиты, запинки и оговорки («эээ», «нуу», «типа», «как бы», «в общем-то»).
-3. Стиль контекста: ${styleInstruction}
-4. СТРОГО: верни ТОЛЬКО готовый очищенный текст! Запрещены любые комментарии, пояснения или кавычки вокруг ответа.`;
+  const systemPrompt = `${activeSystemPrompt()}\nСтиль контекста: ${styleInstruction}`;
 
-  // 1. Try Groq Llama-3.3-70b-versatile (~200ms)
-  if (settings.groqApiKey) {
-    try {
-      const res = await postJson(
-        'https://api.groq.com/openai/v1/chat/completions',
-        { 'Authorization': `Bearer ${settings.groqApiKey}` },
-        {
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: text }
-          ],
-          temperature: 0.1,
-          max_tokens: 1024
-        }
-      );
-
-      if (res.ok) {
-        const data: any = await res.json();
-        const output = data.choices?.[0]?.message?.content?.trim();
-        if (output) {
-          return cleanTextRules(output, context);
-        }
-      }
-    } catch (err) {
-      console.warn('[LLM] Groq refinement failed, checking OpenAI fallback:', err);
+  for (const call of orderedLLMCalls(1024)) {
+    const output = await chatCompletion(call, systemPrompt, text, 0.1);
+    if (output) {
+      return cleanTextRules(output, context);
     }
   }
 
-  // 2. Fallback to OpenAI gpt-4o-mini (~250ms)
-  if (settings.openaiApiKey) {
-    try {
-      const res = await postJson(
-        'https://api.openai.com/v1/chat/completions',
-        { 'Authorization': `Bearer ${settings.openaiApiKey}` },
-        {
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: text }
-          ],
-          temperature: 0.1,
-          max_tokens: 1024
-        }
-      );
-
-      if (res.ok) {
-        const data: any = await res.json();
-        const output = data.choices?.[0]?.message?.content?.trim();
-        if (output) {
-          return cleanTextRules(output, context);
-        }
-      }
-    } catch (err) {
-      console.warn('[LLM] OpenAI refinement failed:', err);
-    }
-  }
-
-  // 3. Fallback to rule-based cleaner
   return cleanTextRules(text, context);
 }
 
+/* ── Translate mode ─────────────────────────────────────────────────── */
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  ru: 'русский',
+  en: 'английский',
+  es: 'испанский',
+  de: 'немецкий',
+  fr: 'французский',
+  zh: 'китайский'
+};
+
 /**
- * AI Voice Rewrite / Instructions:
- * Takes the selected text from the user's active window and rewrites it
- * according to the voice command (e.g. "переведи на английский", "сделай деловым", "исправь ошибки").
+ * Translate dictated text into the target language (Translate mode).
+ * Uses the editable translate prompt from settings.
  */
+export async function translateTextWithLLM(
+  text: string,
+  targetLang: string,
+  context: ActiveContext
+): Promise<string> {
+  const settings = storage.getSettings();
+
+  if (!hasConfiguredLLM()) {
+    // Offline fallback: no LLM — keep raw text rather than dropping it
+    return text;
+  }
+
+  const targetName = LANGUAGE_NAMES[targetLang] || targetLang;
+  const basePrompt =
+    settings.translatePrompt ||
+    'Переведи надиктованный текст на указанный целевой язык. Верни ТОЛЬКО перевод без пояснений.';
+
+  const systemPrompt = `${basePrompt}\nЦелевой язык: ${targetName}.`;
+
+  for (const call of orderedLLMCalls(2048)) {
+    const output = await chatCompletion(call, systemPrompt, text, 0.1);
+    if (output) {
+      return output.replace(/^["'«»]+|["'«»]+$/g, '').trim();
+    }
+  }
+
+  return text;
+}
+
+/* ── Voice rewrite of selected text ─────────────────────────────────── */
+
 export async function rewriteTextWithLLM(
   originalText: string,
   userInstruction: string,
   context: ActiveContext
 ): Promise<string> {
   const settings = storage.getSettings();
-  if (!settings.groqApiKey && !settings.openaiApiKey) {
+  if (!hasConfiguredLLM()) {
     return originalText;
   }
 
-  const systemPrompt = `Ты — экспертный ИИ-редактор текста для Windows.
+  const systemPrompt = `Ты — экспертный ИИ-редактор текста.
 Твоя задача — изменить или переписать исходный текст строго по голосовой команде пользователя.
-Команда может быть любой: перевод на любой язык, исправление ошибок/пунктуации, смена тона (вежливый, деловой, разговорный), сжатие, разворачивание, форматирование списком и т.д.
+Команда может быть любой: перевод на любой язык, исправление ошибок/пунктуации, смена тона, сжатие, разворачивание, форматирование списком и т.д.
 КРИТИЧЕСКИЕ ПРАВИЛА:
 1. Верни ТОЛЬКО готовый результат!
-2. Запрещены любые вступления ("Вот ваш перевод:", "Исправленный текст:"), пояснения, примечания и кавычки вокруг всего текста.
+2. Запрещены любые вступления, пояснения, примечания и кавычки вокруг всего текста.
 3. Сохраняй исходный смысл, если команда прямо не просит изменить его.`;
 
-  const userPrompt = `ИСХОДНЫЙ ТЕКСТ:
-"""
-${originalText}
-"""
+  const userPrompt = `ИСХОДНЫЙ ТЕКСТ:\n"""\n${originalText}\n"""\n\nКОМАНДА:\n${userInstruction}`;
 
-КОМАНДА:
-${userInstruction}`;
-
-  // 1. Try Groq Llama-3.3-70b-versatile
-  if (settings.groqApiKey) {
-    try {
-      const res = await postJson(
-        'https://api.groq.com/openai/v1/chat/completions',
-        { 'Authorization': `Bearer ${settings.groqApiKey}` },
-        {
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: 0.2,
-          max_tokens: 2048
-        }
-      );
-
-      if (res.ok) {
-        const data: any = await res.json();
-        const output = data.choices?.[0]?.message?.content?.trim();
-        if (output) {
-          return output;
-        }
-      }
-    } catch (err) {
-      console.warn('[LLM] Groq rewrite failed, checking OpenAI fallback:', err);
-    }
-  }
-
-  // 2. Fallback to OpenAI gpt-4o-mini
-  if (settings.openaiApiKey) {
-    try {
-      const res = await postJson(
-        'https://api.openai.com/v1/chat/completions',
-        { 'Authorization': `Bearer ${settings.openaiApiKey}` },
-        {
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: 0.2,
-          max_tokens: 2048
-        }
-      );
-
-      if (res.ok) {
-        const data: any = await res.json();
-        const output = data.choices?.[0]?.message?.content?.trim();
-        if (output) {
-          return output;
-        }
-      }
-    } catch (err) {
-      console.error('[LLM] OpenAI rewrite error:', err);
+  for (const call of orderedLLMCalls(2048)) {
+    const output = await chatCompletion(call, systemPrompt, userPrompt, 0.2);
+    if (output) {
+      return output;
     }
   }
 

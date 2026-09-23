@@ -1,7 +1,7 @@
 {
-  "name": "speaky",
-  "version": "1.0.6",
-  "description": "Next-gen AI Voice Dictation & Assistant for Windows and macOS",
+"name": "speaky",
+"version": "1.1.0",
+"description": "Speaky — AI voice dictation with local & cloud speech models for Windows and macOS",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"npm run dev:electron\"",
@@ -41,16 +41,16 @@
     "vite": "^6.1.0"
   },
   "build": {
-    "appId": "com.speaky.app",
-    "productName": "speaky",
+"appId": "com.speaky.app",
+"productName": "Speaky",
     "npmRebuild": false,
     "directories": {
       "output": "release"
     },
     "publish": {
       "provider": "github",
-      "owner": "anufriev163",
-      "repo": "speaking",
+      "owner": "AnDrey1902",
+      "repo": "speaky",
       "releaseType": "release"
     },
     "files": [
@@ -67,11 +67,11 @@
     ],
     "extraResources": [
       {
-        "from": "resources/scripts",
-        "to": "scripts",
-        "filter": [
-          "**/*"
-        ]
+      "from": "resources/scripts",
+      "to": "scripts",
+      "filter": [
+        "*.py"
+      ]
       },
       {
         "from": "assets",
@@ -135,7 +135,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "speaky",
+      "shortcutName": "Speaky",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
       "runAfterFinish": true,

@@ -1,71 +1,110 @@
-# 🎙️ Speaky — Next-gen AI Voice Dictation for Windows & macOS
+# 🎙️ Speaky — AI голосовой ввод для Windows & macOS
 
-> **Speak naturally, write instantly.** The open-source, subscription-free alternative to Wispr Flow, Aqua Voice, and Superwhisper with sub-200ms latency.  
-> Интеллектуальный голосовой ввод в любое приложение на базе **Whisper Large-v3-turbo** и **Llama 3.3 70B** — 100% бесплатно и без подписок.
+> **Speakyте — Speaky печатает.** Open-source альтернатива WisprFlow и Handy с локальными моделями, LLM-постобработкой и полной приватностью: ключи и данные остаются у вас.
+>
+> Надиктуйте текст в **любое приложение** — от терминала до Word. Локальный Whisper, GigaAM и Parakeet работают офлайн, облачный Groq даёт задержку ~200 мс.
 
-[![Релиз](https://img.shields.io/github/v/release/anufriev163/speaking?color=blue&label=Версия)](https://github.com/anufriev163/speaking/releases/latest)
-[![Скачать для Windows](https://img.shields.io/badge/Скачать-Windows%20(exe)-success?logo=windows)](https://github.com/anufriev163/speaking/releases/download/v1.0.6/speaky-setup-1.0.6.exe)
-[![Скачать для macOS](https://img.shields.io/badge/Скачать-macOS%20(dmg)-black?logo=apple)](https://github.com/anufriev163/speaking/releases/download/v1.0.6/speaky-1.0.6.dmg)
-[![GitHub Stars](https://img.shields.io/github/stars/anufriev163/speaking?style=social)](https://github.com/anufriev163/speaking)
-[![Лицензия](https://img.shields.io/badge/Лицензия-MIT-orange)](#)
+[![Релиз](https://img.shields.io/github/v/release/AnDrey1902/speaky?color=blue&label=Версия)](https://github.com/AnDrey1902/speaky/releases/latest)
+[![Скачать для Windows](https://img.shields.io/badge/Скачать-Windows%20(exe)-success?logo=windows)](https://github.com/AnDrey1902/speaky/releases/latest)
+[![GitHub Stars](https://img.shields.io/github/stars/AnDrey1902/speaky?style=social)](https://github.com/AnDrey1902/speaky)
+[![Лицензия](https://img.shields.io/badge/Лицензия-MIT-orange)](#лицензия)
 
 ---
 
-## 🚀 Скачать приложение
+## 🚀 Скачать
 
-| Платформа | Файл загрузки | Инструкция |
+| Платформа | Файл | Инструкция |
 | :--- | :--- | :--- |
-| **Windows 10 / 11 (64-бит)** | [**Скачать Speaky (speaky-setup-1.0.6.exe)**](https://github.com/anufriev163/speaking/releases/download/v1.0.6/speaky-setup-1.0.6.exe) | Запустите инсталлятор и следуйте подсказкам мастера установки. |
-| **Windows 7 / 8 / 32-бит (Legacy)** | [**Скачать для старых ПК (speaky-legacy-setup-1.0.6.exe)**](https://github.com/anufriev163/speaking/releases/download/v1.0.6/speaky-legacy-setup-1.0.6.exe) | Облегчённая сборка для 32-битных и устаревших систем. |
-| **macOS (Apple Silicon & Intel)** | [**Скачать DMG (speaky-1.0.6.dmg)**](https://github.com/anufriev163/speaking/releases/download/v1.0.6/speaky-1.0.6.dmg) | Откройте DMG и перетащите «speaky» в папку Applications. |
+| **Windows 10 / 11 (64-бит)** | [**Speaky Setup (exe)**](https://github.com/AnDrey1902/speaky/releases/latest) | Запустите инсталлятор и следуйте подсказкам мастера. |
+| **Windows 7 / 8 / 32-бит (Legacy)** | [**Legacy-сборка (exe)**](https://github.com/AnDrey1902/speaky/releases/latest) | Облегчённая сборка для старых систем. |
+| **macOS (Apple Silicon)** | [**Speaky (dmg)**](https://github.com/AnDrey1902/speaky/releases/latest) | Откройте DMG и перетащите Speaky в Applications. |
 
 > [!TIP]
-> **При первом запуске на Windows (SmartScreen):**
-> Так как приложение новое и открытое (Open Source), Windows может показать синее окно защиты *«Система защитила ваш компьютер»*.
-> Нажмите **«Подробнее»** ➔ **«Выполнить в любом случае»**. Это стандартная процедура для программ без платного корпоративного сертификата Microsoft.
+> **SmartScreen при первом запуске:** приложение открытое (Open Source) без платного сертификата Microsoft, поэтому Windows может показать синее окно защиты. Нажмите **«Подробнее» → «Выполнить в любом случае»** — это стандартно для opensource-софта.
 
 ---
 
-## ⚡ Чем «Speaky» лучше аналогов?
+## ✨ Возможности
 
-| Возможность | Обычные сервисы (diktuy.ru и др.) | «Speaky» (Speaky AI) |
-|---|---|---|
-| **Скорость отклика (Latency)** | 2 000 – 4 000 мс | **⚡ 150 – 300 мс** (LPU-ускоренный Groq Whisper v3) |
-| **Режимы записи** | Только клик | ✅ **Toggle** (нажал/отжал) и **Push-to-Talk** (speakyшь пока держишь клавишу) |
-| **ИИ-корректор стиля** | Базовая пунктуация | ✅ **Llama 3.3 70B** / GPT-4o-mini (исправление оговорок, пунктуация, стиль) |
-| **Контекст приложения** | ❌ Не знает, куда вводится текст | ✅ **Автодетект**: форматирует код в IDE, живой стиль в мессенджерах, строгий в Word |
-| **Слова-паразиты и запинки** | ❌ Оставляет все «эээ», «нуу», оговорки | ✅ **Умная очистка**: вырезает паразиты, учитывает исправления («в 5, ой нет, в 6» → «в 6») |
-| **Голосовые команды (Hands-Free)** | ❌ Нет | ✅ «Новая строка», «новый абзац», «точка с запятой», «тире» |
-| **Вставка текста** | Часто через буфер обмена (затирает `Ctrl+V`) | ✅ **Нативный `SendInput`** Unicode-символов (буфер обмена чист) |
-| **Модель использования** | Платная подписка с лимитами минут/кредитов | ✅ **BYOK (Свой ключ)**: бесплатный ключ Groq дает **14 400 запросов в день бесплатно**! |
-| **Безопасность ключей** | Обычный текст | ✅ Windows DPAPI (`safeStorage`) — ключи зашифрованы в ОС |
-| **Потребление ресурсов** | 400 – 700 МБ RAM | ✅ Оптимизированный стек (~80–120 МБ) с нативным FFI (`koffi`) |
+### 🗣️ Распознавание речи — локально или в облаке
+
+- **Локальные модели (офлайн, без ключей):** каталог из 14 моделей в один клик —
+  Whisper Large-v3-Turbo / Large-v3 / Medium / Small / Base (faster-whisper),
+  NVIDIA Parakeet TDT 0.6B v2/v3, GigaAM v3 (CTC, RNN-T, E2E), GigaAM Multilingual (ru/en/kk/ky/uz).
+- **Своя модель из папки:** уже скачанная или используемая другой программой модель подключается указанием каталога — движок (faster-whisper / sherpa-onnx / onnx-asr) определяется автоматически, файлы не копируются и не удаляются.
+- **Облачные STT:** Groq Whisper (`whisper-large-v3-turbo`, ~150–300 мс на LPU) и OpenAI Whisper-1.
+- **Автофолбэк:** нет сети или ключа — облачный режим прозрачно падает на локальную модель и наоборот.
+
+### 🧠 Постобработка LLM — ваш AI-редактор
+
+- **4 провайдера на выбор:** Groq (Llama 3.3 70B), OpenAI (GPT-4o-mini), **Google Gemini**, **любой OpenAI-совместимый сервер** — Ollama, LM Studio, vLLM, OpenRouter (ключ опционален для локальных серверов).
+- **Свои промпты:** CRUD-шаблоны с активным промптом — чистка речи, деловой стиль, стиль кода, «только пунктуация» и любые ваши.
+- **Контекст-автоформат:** в IDE — camelCase и git-команды, в мессенджерах — живой тон без точки в конце, в документах — «ёлочки», тире и числа цифрами.
+- **Умная очистка:** слова-паразиты («эээ», «типа»), самокоррекции («в 5, ой нет, в 6» → «в 6»), голосовые команды («новая строка», «точка с запятой»).
+- **AI Rewrite:** надиктуйте инструкцию поверх выделенного текста в любом приложении — перевод, смена тона, сжатие, список.
+
+### 🌍 Режим перевода
+
+Отдельная горячая клавиша: speakyте на русском — в приложение вставляется готовый английский (или es/de/fr/zh). Системный промпт редактируется.
+
+### ⌨️ Горячие клавиши
+
+Клик по полю → нажмите сочетание → готово. Рекордер проверяет занятость сочетания другими приложениями и конфликт с другими действиями Speaky. Режимы **Toggle** и **Push-to-Talk**.
+
+### 🎛️ Прочее
+
+- **Плавающий HUD-капсула** с живым эквалайзером, таймером и статусами (запись / обработка / результат).
+- **Автозамена:** словарь терминов (PostgreSQL, Kubernetes…) и сниппеты-макросы («мой имейл» → адрес).
+- **История диктовки** с экспортом в Markdown/TXT.
+- **Вставка нативным `SendInput`** — буфер обмена не затирается.
+- **Ключи шифруются** через OS-хранилище (Windows DPAPI / Keychain).
+- **Автостарт, автообновление** с GitHub Releases, мультиязычный интерфейс (ru/en/es/de/fr/zh).
+- **Honest AI-обзор** проекта с наблюдаемостью (трассировка, метрики) — см. `electron/harness`.
 
 ---
 
-## 🛠️ Архитектура и стек технологий
+## ⚔️ Speaky vs WisprFlow vs Handy
 
-- **Десктоп-оболочка**: Electron + Vite + React 19 + TypeScript + Tailwind CSS
-- **Нативная интеграция Windows**: `koffi` (C-FFI) к библиотекам `user32.dll` и `kernel32.dll`:
-  - `GetForegroundWindow` / `QueryFullProcessImageNameW` — мгновенный детект активного софта (VS Code, Telegram, Word и т.д.)
-  - `SendInput` — прямой ввод символов в фокус текстового поля
-  - `GetAsyncKeyState` — плавный Push-to-Talk без задержек
-- **Аудио-движок**: Web Audio API + MediaStream (16 kHz Mono)
-- **STT & LLM Pipeline**:
-  - Сверхбыстрый Groq Whisper Large-v3-turbo (инференс ~150-250 мс)
-  - Llama 3.3 70B Versatile для умной коррекции пунктуации и форматирования
-  - OpenAI Whisper-1 / GPT-4o-mini fallback
-  - Локальный / оффлайн режим
-- **Floating HUD**: Frameless, Always-on-top плавающая пилюля (Dynamic Island) с живым эквалайзером (Waveform), PTT-индикатором и скоростью.
-- **Автообновление**: Встроенный модуль `electron-updater`, проверяющий релизы на GitHub.
+| | **Speaky** | **WisprFlow** | **Handy** |
+|:---|:---|:---|:---|
+| **Цена** | ✅ Бесплатно, open source (MIT) | 💰 Подписка ~$12/мес (Free: 2000 слов/нед) | ✅ Бесплатно, open source |
+| **Локальные модели** | ✅ 14 моделей каталога + **своя папка** | ⚠️ Только на платном тарифе | ✅ Whisper (parakeet/faster-whisper) |
+| **Облачный STT** | ✅ Groq (~200 мс) + OpenAI | ✅ Свой облачный движок | ❌ Только локально |
+| **LLM-постобработка** | ✅ Groq / OpenAI / Gemini / любой OpenAI-совместимый (Ollama, LM Studio…) | ✅ Своя (настраиваемые стили на Pro) | ⚠️ Только опциональное LLM-выравнивание текста |
+| **Свои промпты постобработки** | ✅ Полный CRUD, активный шаблон | ⚠️ Шаблоны на Pro | ⚠️ Ограниченно |
+| **Режим перевода голосом** | ✅ Отдельная клавиша + свой промпт | ✅ 100+ языков (Pro) | ❌ |
+| **AI Rewrite выделенного** | ✅ Голосовая команда поверх выделения | ✅ (Pro) | ❌ |
+| **Контекст приложения** | ✅ IDE / чат / документ / терминал | ✅ | ❌ |
+| **Автозамена и макросы** | ✅ Словарь + сниппеты | ✅ (Pro) | ❌ |
+| **Свой хоткей** | ✅ Рекордер с проверкой занятости | ✅ | ✅ |
+| **Кроссплатформенность** | ✅ Windows, macOS (Linux-цели в сборке) | ✅ Win/macOS | ✅ Win/macOS/Linux |
+| **Приватность** | ✅ Ключи в DPAPI/Keychain, офлайн-режим полный | ❌ Облако по умолчанию | ✅ Полностью офлайн |
+| **Расход ресурсов** | ✅ ~80–120 МБ RAM | ❌ Electron-тяжёлый | ✅ Лёгкий (Tauri) |
+
+> **TL;DR:** WisprFlow — полированный платный сервис с облаком; Handy — минималистичный офлайн-диктовщик без LLM-головы; **Speaky** — объединяет: облачную скорость Groq, полный офлайн с любыми локальными моделями (включая свои папки), LLM-постобработку с любым провайдером и своими промптами — бесплатно и open source.
+
+---
+
+## 🛠️ Архитектура и стек
+
+- **Оболочка:** Electron 34 + Vite + React 19 + TypeScript + Tailwind CSS
+- **Нативная интеграция Windows:** `koffi` (C-FFI) к `user32.dll` / `kernel32.dll`:
+  - `GetForegroundWindow` / `QueryFullProcessImageNameW` — мгновенный детект активного приложения
+  - `SendInput` — прямой Unicode-ввод в фокус (буфер обмена чист)
+  - `GetAsyncKeyState` — плавный Push-to-Talk
+- **Аудио:** Web Audio API, 16 kHz Mono PCM
+- **STT-движки:** faster-whisper, sherpa-onnx, onnx-asr (Parakeet/GigaAM), gigaam-pip — Python-воркер с persistent-режимом и one-shot для менеджера моделей
+- **LLM-слой:** единый chat-completions клиент с приоритетом выбранного провайдера и автофолбэком
+- **Менеджер моделей:** каталог + скачивание с прогрессом, отмена, проверка движков (`pip install …`), регистрация пользовательских папок
+- **Обновления:** electron-updater → GitHub Releases
 
 ---
 
 ## ⌨️ Управление
 
-- **`Ctrl + Space`** (настраивается) — начать / остановить диктовку (или удерживать в режиме Push-to-Talk).
-- **Иконка в трее** — быстрый доступ к виджету, настройкам, проверке обновлений и выходу.
-- **Клик по шестеренке в HUD** — открыть окно настроек (ИИ провайдеры, корректор, словарь, макросы, автозапуск).
+- **Основной хоткей** (по умолчанию `Ctrl+~`, настраивается) — начать/остановить диктовку; в режиме PTT — держать.
+- **Хоткей перевода** (по умолчанию `Ctrl+Shift+~`) — диктовка с авто-переводом.
+- **Esc** — отмена записи. **Иконка в трее** — виджет, настройки, обновления, выход.
 
 ---
 
@@ -75,24 +114,28 @@
 # 1. Установка зависимостей
 npm install
 
-# 2. Запуск в режиме разработки
+# 2. Запуск в режиме разработки (Vite + Electron)
 npm run dev
 
-# 3. Сборка установщика для Windows
+# 3. Сборка установщика для Windows (NSIS)
 npm run dist
+
+# Для macOS / Linux
+npm run dist:mac
 ```
+
+Тесты: `npx tsx tests/run-harness-tests.ts` (harness-слой) и `npx electron tests/test-accelerators.js` (глобальные хоткеи).
 
 ---
 
 ## ⭐ Поддержите проект
 
-Если **«Speaky»** экономит ваше время и ускоряет работу — поставьте **звезду на GitHub**! Это лучшая мотивация развивать проект и добавлять новые функции.
+Если Speaky экономит ваше время — поставьте **звезду на GitHub**, это лучшая мотивация развивать проект.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=anufriev163/speaking&type=Date)](https://star-history.com/#anufriev163/speaking&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=AnDrey1902/speaky&type=Date)](https://star-history.com/#AnDrey1902/speaky&Date)
 
 ---
 
 ## 📄 Лицензия
 
-Распространяется под лицензией MIT. Подробности в файле [LICENSE](LICENSE).
-
+MIT. Подробности — в файле [LICENSE](LICENSE).

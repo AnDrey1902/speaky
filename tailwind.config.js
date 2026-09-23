@@ -8,6 +8,12 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Speaky brand accent family
+        brand: {
+          DEFAULT: '#6366f1',
+          soft: '#818cf8',
+          deep: '#4f46e5',
+        },
         carbon: {
           900: '#0c0d0e',
           800: '#141618',
@@ -27,10 +33,11 @@ module.exports = {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace']
       },
       boxShadow: {
-        'hud': '0 20px 50px rgba(0, 0, 0, 0.6), 0 0 30px rgba(79, 172, 254, 0.2)',
+        'hud': '0 20px 50px rgba(0, 0, 0, 0.6), 0 0 30px rgba(99, 102, 241, 0.25)',
         'glow-cyan': '0 0 25px rgba(0, 242, 254, 0.35)',
         'glow-emerald': '0 0 25px rgba(16, 185, 129, 0.35)',
         'glow-rose': '0 0 25px rgba(244, 63, 94, 0.35)',
+        'glow-brand': '0 0 25px rgba(99, 102, 241, 0.4)',
       },
       animation: {
         'pulse-subtle': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',

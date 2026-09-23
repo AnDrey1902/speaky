@@ -36,3 +36,9 @@ Thumbs.db
 .parcel-cache/
 .temp/
 *.tmp
+
+# Python
+__pycache__/
+
+# Agent metadata
+.freebuff/

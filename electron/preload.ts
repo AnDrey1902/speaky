@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { AppSettings, CustomWord, TextSnippet, DictationHistoryItem, ActiveContext, HudState } from '../src/types';
+import {
+  AppSettings,
+  CustomWord,
+  TextSnippet,
+  DictationHistoryItem,
+  ActiveContext,
+  HudState,
+  PromptTemplate,
+  ModelEngine,
+  ModelProgressEvent,
+  DictationMode
+} from '../src/types';
 
 const api = {
   // Settings & Storage
@@ -9,6 +20,29 @@ const api = {
   saveDictionary: (dictionary: CustomWord[]): Promise<void> => ipcRenderer.invoke('storage:save-dictionary', dictionary),
   getSnippets: (): Promise<TextSnippet[]> => ipcRenderer.invoke('storage:get-snippets'),
   saveSnippets: (snippets: TextSnippet[]): Promise<void> => ipcRenderer.invoke('storage:save-snippets', snippets),
+
+  // Post-processing prompts
+  getPrompts: (): Promise<PromptTemplate[]> => ipcRenderer.invoke('storage:get-prompts'),
+  savePrompts: (prompts: PromptTemplate[]): Promise<void> => ipcRenderer.invoke('storage:save-prompts', prompts),
+
+  // Local model manager
+  getModelCatalog: (): Promise<any[]> => ipcRenderer.invoke('models:catalog'),
+  downloadModel: (modelId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('models:download', modelId),
+  removeModel: (modelId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('models:remove', modelId),
+  onModelProgress: (callback: (ev: ModelProgressEvent) => void) => {
+    const handler = (_event: any, ev: ModelProgressEvent) => callback(ev);
+    ipcRenderer.on('model:progress', handler);
+    return () => ipcRenderer.removeListener('model:progress', handler);
+  },
+  checkEngine: (engine: ModelEngine): Promise<{ available: boolean; error?: string; hint?: string }> =>
+    ipcRenderer.invoke('models:check-engine', engine),
+  pickModelFolder: () => ipcRenderer.invoke('models:pick-folder'),
+  registerCustomModel: (model: any): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('models:register-custom', model),
+  unregisterCustomModel: (modelId: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('models:unregister-custom', modelId),
   getHistory: (): Promise<DictationHistoryItem[]> => ipcRenderer.invoke('storage:get-history'),
   clearHistory: (): Promise<void> => ipcRenderer.invoke('storage:clear-history'),
   exportHistory: (format: 'md' | 'txt' = 'md'): Promise<{ success: boolean; filePath?: string; reason?: string }> =>
@@ -20,6 +54,8 @@ const api = {
   },
 
   // Window Controls
+  checkHotkey: (accelerator: string): Promise<{ available: boolean; error?: string }> =>
+    ipcRenderer.invoke('hotkeys:check', accelerator),
   openSettings: (): void => ipcRenderer.send('window:open-settings'),
   closeSettings: (): void => ipcRenderer.send('window:close-settings'),
   minimizeSettings: (): void => ipcRenderer.send('window:minimize-settings'),
@@ -33,14 +69,14 @@ const api = {
   injectText: (text: string): Promise<boolean> => ipcRenderer.invoke('win32:inject-text', text),
 
   // Audio & Transcription
-  transcribeAudio: (audioData: ArrayBuffer, mimeType?: string) => 
-    ipcRenderer.invoke('stt:transcribe', audioData, mimeType),
+  transcribeAudio: (audioData: ArrayBuffer, mimeType?: string, mode?: DictationMode) =>
+    ipcRenderer.invoke('stt:transcribe', audioData, mimeType, mode || 'dictation'),
   checkLocalWhisper: (): Promise<{ available: boolean; error?: string }> =>
     ipcRenderer.invoke('stt:check-local'),
 
   // Events from Main Process
-  onTriggerRecording: (callback: (action: 'toggle' | 'start' | 'stop' | 'show') => void) => {
-    const handler = (_event: any, action: 'toggle' | 'start' | 'stop' | 'show') => callback(action);
+  onTriggerRecording: (callback: (action: 'toggle' | 'start' | 'stop' | 'show' | 'translate') => void) => {
+    const handler = (_event: any, action: 'toggle' | 'start' | 'stop' | 'show' | 'translate') => callback(action);
     ipcRenderer.on('hotkey:trigger', handler);
     return () => ipcRenderer.removeListener('hotkey:trigger', handler);
   },

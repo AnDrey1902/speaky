@@ -1,6 +1,6 @@
 {
   "appId": "com.speaky.app",
-  "productName": "speaky",
+  "productName": "Speaky",
   "npmRebuild": false,
   "electronVersion": "22.3.27",
   "directories": {
@@ -8,8 +8,8 @@
   },
   "publish": {
     "provider": "github",
-    "owner": "anufriev163",
-    "repo": "speaking",
+    "owner": "AnDrey1902",
+    "repo": "speaky",
     "releaseType": "release"
   },
   "files": [
@@ -57,7 +57,7 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "speaky",
+    "shortcutName": "Speaky",
     "installerIcon": "assets/icon.ico",
     "uninstallerIcon": "assets/icon.ico",
     "runAfterFinish": true,

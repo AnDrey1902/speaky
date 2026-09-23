@@ -2,15 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Speaky dark-first design tokens ────────────────────────────────── */
 :root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f5f5f7;
-  --bg-tertiary: #ebebed;
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.14);
-  --text-primary: #1d1d1f;
-  --text-secondary: #86868b;
-  --accent-black: #000000;
+  --bg-primary: #09090b;      /* zinc-950 */
+  --bg-secondary: #18181b;    /* zinc-900 */
+  --bg-tertiary: #27272a;     /* zinc-800 */
+  --border-subtle: rgba(63, 63, 70, 0.6);
+  --border-strong: rgba(82, 82, 91, 0.9);
+  --text-primary: #f4f4f5;    /* zinc-100 */
+  --text-secondary: #71717a;  /* zinc-500 */
+  --accent: #6366f1;          /* indigo-500 */
+  --accent-soft: #818cf8;     /* indigo-400 */
 }
 
 html,
@@ -32,16 +34,22 @@ body,
   height: 100%;
 }
 
-/* Wispr Flow Style Capsule HUD */
+/* Settings window gets an opaque dark page background (HUD keeps transparency) */
+body:has(.settings-shell) {
+  background: var(--bg-primary) !important;
+  background-color: var(--bg-primary) !important;
+}
+
+/* ── Floating capsule HUD ───────────────────────────────────────────── */
 .wispr-capsule {
   position: relative;
-  background: linear-gradient(180deg, #202025 0%, #121215 100%);
+  background: linear-gradient(180deg, #1c1c21 0%, #101013 100%);
   border: none;
   border-radius: 9999px;
   box-shadow:
     0 10px 28px -4px rgba(0, 0, 0, 0.45),
     0 4px 10px -2px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -50,10 +58,14 @@ body,
   transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.wispr-capsule-recording {
-  /* No duplicate CSS border */
+/* translate mode: indigo ring around the capsule */
+.wispr-capsule-mode-translate {
+  box-shadow:
+    0 10px 28px -4px rgba(0, 0, 0, 0.45),
+    0 0 0 1.5px rgba(129, 140, 248, 0.65),
+    0 0 22px -4px rgba(99, 102, 241, 0.55),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
 }
-
 
 .wispr-circle-btn {
   width: 26px;
@@ -82,8 +94,7 @@ body,
   background: #222226;
 }
 
-
-/* Smooth Apple-style spring slide & fade for HUD pill */
+/* Smooth spring slide & fade for HUD pill */
 .hud-spring-wrapper {
   transition: transform 380ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform, opacity;
@@ -101,7 +112,7 @@ body,
   pointer-events: none;
 }
 
-/* Custom minimal scrollbar */
+/* Custom minimal dark scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -112,12 +123,12 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.14);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 /* Drag helpers */

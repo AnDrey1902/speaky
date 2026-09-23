@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { app, safeStorage } from 'electron';
-import { AppSettings, CustomWord, TextSnippet, DictationHistoryItem } from '../../src/types';
+import { AppSettings, CustomWord, TextSnippet, DictationHistoryItem, PromptTemplate } from '../../src/types';
+import { DEFAULT_PROMPTS as SHARED_DEFAULT_PROMPTS } from '../../src/defaultPrompts';
 
 function encryptSecret(secret: string): string {
   if (!secret) return '';
@@ -46,6 +47,7 @@ interface AppData {
   dictionary: CustomWord[];
   snippets: TextSnippet[];
   history: DictationHistoryItem[];
+  prompts: PromptTemplate[];
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -65,6 +67,17 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoStart: false,
   handsFreeCommands: true,
   aiCorrection: true,
+  /* Speaky additions */
+  localModelId: 'whisper-large-v3-turbo',
+  llmProvider: 'groq',
+  llmModels: {},
+  customLocalModels: [],
+  activePromptId: 'clean-default',
+  translateHotkey: 'Ctrl+Shift+`',
+  translateTargetLang: 'en',
+  translateEnabled: true,
+  translatePrompt:
+    'Переведи надиктованный текст на указанный целевой язык. Верни ТОЛЬКО перевод без пояснений и кавычек. Сохраняй смысл, имена собственные и разметку.',
 };
 
 const DEFAULT_DICTIONARY: CustomWord[] = [
@@ -84,6 +97,9 @@ const DEFAULT_SNIPPETS: TextSnippet[] = [
   { id: '3', trigger: 'шапка письма', replacement: 'Здравствуйте!\n\nСпасибо за обращение.', description: 'Шаблон приветствия' },
   { id: '4', trigger: 'хорошего дня', replacement: 'С уважением,\nХорошего вам дня!', description: 'Вежливая подпись' }
 ];
+
+export const DEFAULT_PROMPTS: PromptTemplate[] = SHARED_DEFAULT_PROMPTS;
+
 
 class StorageService {
   private filePath: string;
@@ -114,14 +130,6 @@ class StorageService {
       }
     }
 
-    // Check if legacy file exists in APPDATA/speaky
-    if (process.platform === 'win32' && process.env.APPDATA) {
-      const legacyPath = path.join(process.env.APPDATA, 'speaky', 'speaky-data.json');
-      if (fs.existsSync(legacyPath) && !fs.existsSync(path.join(dir, 'speaky-data.json'))) {
-        return legacyPath;
-      }
-    }
-
     try {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -143,12 +151,15 @@ class StorageService {
         if (settings.groqApiKey) settings.groqApiKey = decryptSecret(settings.groqApiKey);
         if (settings.openaiApiKey) settings.openaiApiKey = decryptSecret(settings.openaiApiKey);
         if (settings.deepgramApiKey) settings.deepgramApiKey = decryptSecret(settings.deepgramApiKey);
+        if (settings.geminiApiKey) settings.geminiApiKey = decryptSecret(settings.geminiApiKey);
+        if (settings.customLlmApiKey) settings.customLlmApiKey = decryptSecret(settings.customLlmApiKey);
 
         return {
           settings,
           dictionary: parsed.dictionary || DEFAULT_DICTIONARY,
           snippets: parsed.snippets || DEFAULT_SNIPPETS,
-          history: parsed.history || []
+          history: parsed.history || [],
+          prompts: parsed.prompts || DEFAULT_PROMPTS
         };
       }
     } catch (err) {
@@ -159,7 +170,8 @@ class StorageService {
       settings: DEFAULT_SETTINGS,
       dictionary: DEFAULT_DICTIONARY,
       snippets: DEFAULT_SNIPPETS,
-      history: []
+      history: [],
+      prompts: DEFAULT_PROMPTS
     };
   }
 
@@ -170,6 +182,8 @@ class StorageService {
       if (clonedSettings.groqApiKey) clonedSettings.groqApiKey = encryptSecret(clonedSettings.groqApiKey);
       if (clonedSettings.openaiApiKey) clonedSettings.openaiApiKey = encryptSecret(clonedSettings.openaiApiKey);
       if (clonedSettings.deepgramApiKey) clonedSettings.deepgramApiKey = encryptSecret(clonedSettings.deepgramApiKey);
+      if (clonedSettings.geminiApiKey) clonedSettings.geminiApiKey = encryptSecret(clonedSettings.geminiApiKey);
+      if (clonedSettings.customLlmApiKey) clonedSettings.customLlmApiKey = encryptSecret(clonedSettings.customLlmApiKey);
 
       const toSave = {
         ...this.data,
@@ -210,7 +224,30 @@ class StorageService {
         s.deepgramApiKey = dec;
       }
     }
-    return { ...this.data.settings };
+    if (s.geminiApiKey && (s.geminiApiKey.startsWith('enc:') || s.geminiApiKey.startsWith('b64:'))) {
+      const dec = decryptSecret(s.geminiApiKey);
+      if (dec && !dec.startsWith('enc:') && !dec.startsWith('b64:')) {
+        s.geminiApiKey = dec;
+      }
+    }
+    if (s.customLlmApiKey && (s.customLlmApiKey.startsWith('enc:') || s.customLlmApiKey.startsWith('b64:'))) {
+      const dec = decryptSecret(s.customLlmApiKey);
+      if (dec && !dec.startsWith('enc:') && !dec.startsWith('b64:')) {
+        s.customLlmApiKey = dec;
+      }
+    }
+
+    const out = { ...this.data.settings };
+    // If a secret still cannot be decrypted (e.g. data migrated from another
+    // appId after rebranding), expose an empty value to the app so encrypted
+    // blobs are never sent to APIs — but keep the original ciphertext in
+    // memory/disk so it is not destroyed until the user replaces it.
+    if (out.groqApiKey && (out.groqApiKey.startsWith('enc:') || out.groqApiKey.startsWith('b64:'))) out.groqApiKey = '';
+    if (out.openaiApiKey && (out.openaiApiKey.startsWith('enc:') || out.openaiApiKey.startsWith('b64:'))) out.openaiApiKey = '';
+    if (out.deepgramApiKey && (out.deepgramApiKey.startsWith('enc:') || out.deepgramApiKey.startsWith('b64:'))) out.deepgramApiKey = '';
+    if (out.geminiApiKey && (out.geminiApiKey.startsWith('enc:') || out.geminiApiKey.startsWith('b64:'))) out.geminiApiKey = '';
+    if (out.customLlmApiKey && (out.customLlmApiKey.startsWith('enc:') || out.customLlmApiKey.startsWith('b64:'))) out.customLlmApiKey = '';
+    return out;
   }
 
   updateSettings(settings: Partial<AppSettings>): AppSettings {
@@ -234,6 +271,18 @@ class StorageService {
 
   saveSnippets(snippets: TextSnippet[]): void {
     this.data.snippets = snippets;
+    this.save();
+  }
+
+  getPrompts(): PromptTemplate[] {
+    if (!this.data.prompts || this.data.prompts.length === 0) {
+      this.data.prompts = DEFAULT_PROMPTS;
+    }
+    return this.data.prompts;
+  }
+
+  savePrompts(prompts: PromptTemplate[]): void {
+    this.data.prompts = prompts.length > 0 ? prompts : DEFAULT_PROMPTS;
     this.save();
   }
 
