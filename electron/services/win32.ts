@@ -116,7 +116,7 @@ export function isKeyHeld(vKey: number): boolean {
   }
 }
 
-export function isHotkeyTriggerHeld(hotkey = 'Ctrl+~'): boolean {
+export function isHotkeyTriggerHeld(hotkey = 'Ctrl+Space'): boolean {
   if (process.platform !== 'win32' || !GetAsyncKeyState) {
     return false;
   }

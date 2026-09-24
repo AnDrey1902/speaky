@@ -69,7 +69,7 @@ export const HotkeyInput: React.FC<HotkeyInputProps> = ({
   value,
   onChange,
   avoid = [],
-  placeholder = 'Ctrl+~',
+  placeholder = 'Ctrl+Space',
   className = '',
 }) => {
   const [recording, setRecording] = useState(false);

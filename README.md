@@ -1,6 +1,6 @@
 # 🎙️ Speaky — AI голосовой ввод для Windows & macOS
 
-> **Speakyте — Speaky печатает.** Open-source альтернатива WisprFlow и Handy с локальными моделями, LLM-постобработкой и полной приватностью: ключи и данные остаются у вас.
+> **Вы говорите — Speaky печатает.** Open-source альтернатива WisprFlow и Handy с локальными моделями, LLM-постобработкой и полной приватностью: ключи и данные остаются у вас.
 >
 > Надиктуйте текст в **любое приложение** — от терминала до Word. Локальный Whisper, GigaAM и Parakeet работают офлайн, облачный Groq даёт задержку ~200 мс.
 
@@ -8,19 +8,6 @@
 [![Скачать для Windows](https://img.shields.io/badge/Скачать-Windows%20(exe)-success?logo=windows)](https://github.com/AnDrey1902/speaky/releases/latest)
 [![GitHub Stars](https://img.shields.io/github/stars/AnDrey1902/speaky?style=social)](https://github.com/AnDrey1902/speaky)
 [![Лицензия](https://img.shields.io/badge/Лицензия-MIT-orange)](#лицензия)
-
----
-
-## 🚀 Скачать
-
-| Платформа | Файл | Инструкция |
-| :--- | :--- | :--- |
-| **Windows 10 / 11 (64-бит)** | [**Speaky Setup (exe)**](https://github.com/AnDrey1902/speaky/releases/latest) | Запустите инсталлятор и следуйте подсказкам мастера. |
-| **Windows 7 / 8 / 32-бит (Legacy)** | [**Legacy-сборка (exe)**](https://github.com/AnDrey1902/speaky/releases/latest) | Облегчённая сборка для старых систем. |
-| **macOS (Apple Silicon)** | [**Speaky (dmg)**](https://github.com/AnDrey1902/speaky/releases/latest) | Откройте DMG и перетащите Speaky в Applications. |
-
-> [!TIP]
-> **SmartScreen при первом запуске:** приложение открытое (Open Source) без платного сертификата Microsoft, поэтому Windows может показать синее окно защиты. Нажмите **«Подробнее» → «Выполнить в любом случае»** — это стандартно для opensource-софта.
 
 ---
 
@@ -45,7 +32,7 @@
 
 ### 🌍 Режим перевода
 
-Отдельная горячая клавиша: speakyте на русском — в приложение вставляется готовый английский (или es/de/fr/zh). Системный промпт редактируется.
+Отдельная горячая клавиша: говорите на русском — в приложение вставляется готовый английский (или es/de/fr/zh). Системный промпт редактируется.
 
 ### ⌨️ Горячие клавиши
 
@@ -102,7 +89,7 @@
 
 ## ⌨️ Управление
 
-- **Основной хоткей** (по умолчанию `Ctrl+~`, настраивается) — начать/остановить диктовку; в режиме PTT — держать.
+- **Основной хоткей** (по умолчанию `Ctrl+Space`, настраивается) — начать/остановить диктовку; в режиме PTT — держать.
 - **Хоткей перевода** (по умолчанию `Ctrl+Shift+~`) — диктовка с авто-переводом.
 - **Esc** — отмена записи. **Иконка в трее** — виджет, настройки, обновления, выход.
 
@@ -125,6 +112,19 @@ npm run dist:mac
 ```
 
 Тесты: `npx tsx tests/run-harness-tests.ts` (harness-слой) и `npx electron tests/test-accelerators.js` (глобальные хоткеи).
+
+---
+
+## 🚀 Скачать
+
+| Платформа | Файл | Инструкция |
+| :--- | :--- | :--- |
+| **Windows 10 / 11 (64-бит)** | [**Speaky Setup (exe)**](https://github.com/AnDrey1902/speaky/releases/latest) | Запустите инсталлятор и следуйте подсказкам мастера. |
+| **Windows 7 / 8 / 32-бит (Legacy)** | [**Legacy-сборка (exe)**](https://github.com/AnDrey1902/speaky/releases/latest) | Облегчённая сборка для старых систем. |
+| **macOS (Apple Silicon)** | [**Speaky (dmg)**](https://github.com/AnDrey1902/speaky/releases/latest) | Откройте DMG и перетащите Speaky в Applications. |
+
+> [!TIP]
+> **SmartScreen при первом запуске:** приложение открытое (Open Source) без платного сертификата Microsoft, поэтому Windows может показать синее окно защиты. Нажмите **«Подробнее» → «Выполнить в любом случае»** — это стандартно для opensource-софта.
 
 ---
 

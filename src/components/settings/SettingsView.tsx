@@ -25,7 +25,7 @@ type TabId = 'models' | 'postprocess' | 'translate' | 'snippets' | 'history' | '
 export const SettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('models');
   const [settings, setSettings] = useState<AppSettings>({
-    hotkey: 'Ctrl+~',
+    hotkey: 'Ctrl+Space',
     mode: 'toggle',
     provider: 'groq',
     uiLanguage: 'auto',

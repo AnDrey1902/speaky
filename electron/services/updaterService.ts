@@ -175,7 +175,10 @@ function streamDownload(
   });
 }
 
-export function initAutoUpdater(getSettingsWin: () => BrowserWindow | null) {
+export function initAutoUpdater(
+  getSettingsWin: () => BrowserWindow | null,
+  opts: { autoCheckDisabled?: boolean } = {}
+) {
   // In dev / unpackaged mode, display the package version so the card in
   // Settings looks sane; in production packaged mode, official app.getVersion().
   const currentVer = app.isPackaged ? (app.getVersion() || '1.1.0') : '1.1.0';
@@ -330,7 +333,8 @@ export function initAutoUpdater(getSettingsWin: () => BrowserWindow | null) {
 
   // Scheduled silent checks: 10s after launch, then every 6 hours.
   // Only in packaged builds — in dev the version is meaningless.
-  if (app.isPackaged) {
+  // Portable builds skip them (update = download the new exe manually).
+  if (app.isPackaged && !opts.autoCheckDisabled) {
     startupCheckTimer = setTimeout(() => {
       runCheck().then((state) => {
         if (state.status === 'available') {

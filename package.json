@@ -10,6 +10,7 @@
     "build": "tsc && vite build && npm run build:electron",
     "dist": "npm run dist:win",
     "dist:win": "npm run build && electron-builder --win --x64",
+    "dist:portable": "npm run build && electron-builder --win portable --x64",
     "dist:legacy": "npm run build && electron-builder --win --ia32 --config electron-builder.legacy.json",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:dir": "npm run build && electron-builder --dir",
@@ -91,6 +92,9 @@
         }
       ],
       "icon": "assets/icon.ico"
+    },
+    "portable": {
+      "artifactName": "speaky-portable-${version}.${ext}"
     },
     "mac": {
       "target": [

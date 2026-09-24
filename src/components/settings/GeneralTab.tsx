@@ -111,7 +111,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onChange }) =>
           value={settings.hotkey}
           onChange={(accel) => onChange({ hotkey: accel })}
           avoid={[settings.translateHotkey || '']}
-          placeholder="Ctrl+~"
+          placeholder="Ctrl+Space"
         />
       </SettingRow>
 

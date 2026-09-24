@@ -51,7 +51,7 @@ interface AppData {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  hotkey: 'Ctrl+~',
+  hotkey: 'Ctrl+Space',
   mode: 'toggle',
   provider: 'groq',
   language: 'ru',

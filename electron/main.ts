@@ -41,6 +41,24 @@ import os from 'os';
 // Hardware and legacy compatibility switches for older PCs/GPUs
 app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
 
+// Portable mode (speaky-portable-*.exe): keep all data (settings, history,
+// models) in a folder next to the exe so it travels with the flash drive
+export function isPortableApp(): boolean {
+  return Boolean(process.env.PORTABLE_EXECUTABLE_DIR);
+}
+
+if (process.env.PORTABLE_EXECUTABLE_DIR) {
+  try {
+    const portableData = path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'SpeakyData');
+    if (!fs.existsSync(portableData)) {
+      fs.mkdirSync(portableData, { recursive: true });
+    }
+    app.setPath('userData', portableData);
+  } catch (err) {
+    console.warn('[Portable] Failed to redirect userData, using default:', err);
+  }
+}
+
 // Catch GPU crash gracefully on older laptops/graphics cards
 app.on('child-process-gone', (_event, details) => {
   if (details.type === 'GPU') {
@@ -465,7 +483,7 @@ function registerHotkeys() {
 
   const settings = storage.getSettings();
   const isMac = process.platform === 'darwin';
-  const configured = settings.hotkey || 'Ctrl+~';
+  const configured = settings.hotkey || 'Ctrl+Space';
   const normalized = configured
     .replace(/\bCtrl\b/gi, isMac ? 'CommandOrControl' : 'Control')
     .replace(/\bCmd\b/gi, 'CommandOrControl')
@@ -684,7 +702,9 @@ function setupIpcHandlers() {
     return updated;
   });
 
-  initAutoUpdater(() => settingsWindow);
+  // Portable builds update by re-downloading the exe — electron-updater's
+  // NSIS flow does not apply, so scheduled auto-checks stay off.
+  initAutoUpdater(() => settingsWindow, { autoCheckDisabled: isPortableApp() });
 
   ipcMain.handle('storage:get-dictionary', () => storage.getDictionary());
   ipcMain.handle('storage:save-dictionary', (_event, dict) => storage.saveDictionary(dict));
