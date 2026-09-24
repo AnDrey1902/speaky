@@ -15,10 +15,10 @@
 
 ### 🗣️ Распознавание речи — локально или в облаке
 
-- **Локальные модели (офлайн, без ключей):** каталог из 14 моделей в один клик —
-  Whisper Large-v3-Turbo / Large-v3 / Medium / Small / Base (faster-whisper),
+- **Локальные модели (офлайн, без ключей):** каталог из 18 моделей в один клик —
+  Whisper Large-v3-Turbo / Large-v3 / Medium / Small / Base (faster-whisper), а также компактные модели Tiny / Base / Small / Medium через whisper.cpp,
   NVIDIA Parakeet TDT 0.6B v2/v3, GigaAM v3 (CTC, RNN-T, E2E), GigaAM Multilingual (ru/en/kk/ky/uz).
-- **Своя модель из папки:** уже скачанная или используемая другой программой модель подключается указанием каталога — движок (faster-whisper / sherpa-onnx / onnx-asr) определяется автоматически, файлы не копируются и не удаляются.
+- **Своя модель из папки:** уже скачанная или используемая другой программой модель подключается указанием каталога — движок (faster-whisper / whisper.cpp / sherpa-onnx / onnx-asr) определяется автоматически, файлы не копируются и не удаляются.
 - **Облачные STT:** Groq Whisper (`whisper-large-v3-turbo`, ~150–300 мс на LPU) и OpenAI Whisper-1.
 - **Автофолбэк:** нет сети или ключа — облачный режим прозрачно падает на локальную модель и наоборот.
 
@@ -80,7 +80,7 @@
   - `SendInput` — прямой Unicode-ввод в фокус (буфер обмена чист)
   - `GetAsyncKeyState` — плавный Push-to-Talk
 - **Аудио:** Web Audio API, 16 kHz Mono PCM
-- **STT-движки:** faster-whisper, sherpa-onnx, onnx-asr (Parakeet/GigaAM), gigaam-pip — Python-воркер с persistent-режимом и one-shot для менеджера моделей
+- **STT-движки:** faster-whisper, whisper.cpp (whisper-cli), sherpa-onnx, onnx-asr (Parakeet/GigaAM), gigaam-pip — Python-воркер с persistent-режимом и one-shot для менеджера моделей
 - **LLM-слой:** единый chat-completions клиент с приоритетом выбранного провайдера и автофолбэком
 - **Менеджер моделей:** каталог + скачивание с прогрессом, отмена, проверка движков (`pip install …`), регистрация пользовательских папок
 - **Обновления:** electron-updater → GitHub Releases

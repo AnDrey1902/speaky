@@ -79,7 +79,7 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType = 'audio/wav
 
   if (!apiKey) {
     // If no API key, try local whisper if available before complaining
-    const localCheck = await checkLocalWhisperAvailable();
+    const localCheck = await checkLocalWhisperAvailable(settings.localModelId);
     if (localCheck.available) {
       console.log('[STT] No API key, seamlessly falling back to local model...');
       const localRes = await transcribeAudioLocal(audioBuffer, mimeType, speechLang, settings.localModelId);
@@ -190,7 +190,7 @@ async function attemptLocalFallback(
   startTime: number,
   language = 'ru'
 ): Promise<TranscriptionResult> {
-  const localCheck = await checkLocalWhisperAvailable();
+  const localCheck = await checkLocalWhisperAvailable(storage.getSettings().localModelId);
   if (!localCheck.available) {
     throw new Error('Локальный движок не установлен');
   }

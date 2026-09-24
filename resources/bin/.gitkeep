@@ -1,0 +1,1 @@
+# whisper.cpp binaries can be placed here for packaged builds; the app also resolves whisper-cli from PATH.

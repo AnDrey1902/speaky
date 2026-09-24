@@ -24,30 +24,37 @@ function getScriptPath(): string {
 }
 
 /**
- * Checks if Python with faster-whisper is available in the system environment
+ * Checks whether a local speech engine is available in the system environment.
+ * The selected model is honored so a whisper.cpp-only setup can be used offline.
  */
-export async function checkLocalWhisperAvailable(): Promise<{ available: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    const proc = spawn('python', ['-c', 'import faster_whisper; print("OK")'], {
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
+export async function checkLocalWhisperAvailable(modelId?: string): Promise<{ available: boolean; error?: string }> {
+  const entry = modelId ? getCatalogEntry(modelId) : undefined;
+  const engine = entry?.engine;
+  const check = async (requestedEngine: 'faster-whisper' | 'whisper-cpp') => {
+    return new Promise<{ available: boolean; error?: string }>((resolve) => {
+      const request = JSON.stringify({ action: 'check', engine: requestedEngine });
+      const proc = spawn('python', [getScriptPath(), '--check', request], {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      let output = '';
+      proc.stdout?.on('data', (d) => { output += d.toString(); });
+      proc.on('close', () => {
+        try {
+          const data = JSON.parse(output.trim());
+          resolve({ available: Boolean(data.available), error: data.error });
+        } catch {
+          resolve({ available: false, error: 'Не удалось проверить локальный движок' });
+        }
+      });
+      proc.on('error', (err) => resolve({ available: false, error: err.message }));
     });
+  };
 
-    let output = '';
-    proc.stdout?.on('data', (d) => { output += d.toString(); });
-
-    proc.on('close', (code) => {
-      if (code === 0 && output.includes('OK')) {
-        resolve({ available: true });
-      } else {
-        resolve({ available: false, error: 'faster-whisper не найден в Python' });
-      }
-    });
-
-    proc.on('error', (err) => {
-      resolve({ available: false, error: err.message });
-    });
-  });
+  if (engine === 'whisper-cpp') return check('whisper-cpp');
+  if (engine) return check('faster-whisper');
+  const faster = await check('faster-whisper');
+  return faster.available ? faster : check('whisper-cpp');
 }
 
 /**

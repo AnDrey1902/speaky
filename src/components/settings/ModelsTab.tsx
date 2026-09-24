@@ -33,6 +33,7 @@ type EngineMap = Record<ModelEngine, { available?: boolean; hint?: string; check
 
 const engineLabel: Record<ModelEngine, string> = {
   'faster-whisper': 'faster-whisper',
+  'whisper-cpp': 'whisper.cpp',
   'gigaam': 'GigaAM',
   'sherpa-onnx': 'sherpa-onnx',
   'onnx-asr': 'onnx-asr'

@@ -3,6 +3,7 @@ Speaky local speech worker.
 
 Persistent JSON-lines worker (stdin/stdout) with three pluggable engines:
   - faster-whisper : Whisper models (Systran CTranslate2 checkpoints)
+  - whisper-cpp    : whisper.cpp ggml models via whisper-cli
   - sherpa-onnx    : NVIDIA Parakeet (ONNX) checkpoints
   - gigaam         : GigaAM Russian ASR (pip package "gigaam")
 
@@ -15,6 +16,8 @@ import os
 import json
 import time
 import subprocess
+import shutil
+import tempfile
 import urllib.request
 import urllib.parse
 
@@ -31,6 +34,7 @@ MODELS_DIR = os.environ.get(
 
 ENGINE_MODULES = {
     'faster-whisper': 'faster_whisper',
+    'whisper-cpp': None,
     'gigaam': 'gigaam',
     'sherpa-onnx': 'sherpa_onnx',
     'onnx-asr': 'onnx_asr',
@@ -38,6 +42,7 @@ ENGINE_MODULES = {
 
 ENGINE_PIP_HINT = {
     'faster-whisper': 'pip install faster-whisper',
+    'whisper-cpp': 'установите whisper.cpp и добавьте whisper-cli в PATH или SPEAKY_WHISPER_CPP_BIN',
     'gigaam': 'pip install gigaam',
     'sherpa-onnx': 'pip install sherpa-onnx',
     'onnx-asr': 'pip install onnx-asr[cpu,hub]',
@@ -57,9 +62,27 @@ def emit(obj):
     sys.stdout.flush()
 
 
+def whisper_cli_path():
+    configured = os.environ.get('SPEAKY_WHISPER_CPP_BIN')
+    if configured and os.path.isfile(configured):
+        return configured
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, '..', 'bin', 'whisper-cli.exe' if os.name == 'nt' else 'whisper-cli'),
+        os.path.join(script_dir, '..', '..', 'resources', 'bin', 'whisper-cli.exe' if os.name == 'nt' else 'whisper-cli'),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+    return shutil.which('whisper-cli.exe' if os.name == 'nt' else 'whisper-cli')
+
+
 def engine_available(engine):
+    if engine == 'whisper-cpp':
+        cli = whisper_cli_path()
+        return (True, None) if cli else (False, 'whisper-cli не найден')
     mod = ENGINE_MODULES.get(engine)
-    if not mod:
+    if mod is None:
         return False, f'Unknown engine: {engine}'
     try:
         __import__(mod)
@@ -129,6 +152,32 @@ def download_model(req):
     engine = req.get('engine') or 'faster-whisper'
     dest = os.path.join(MODELS_DIR, engine, model_id)
     os.makedirs(dest, exist_ok=True)
+
+    if engine == 'whisper-cpp':
+        model_file = req.get('modelFile') or f'{model_id}.bin'
+        repo = req.get('huggingfaceId') or 'ggerganov/whisper.cpp'
+        target = os.path.join(dest, model_file)
+        url = f'https://huggingface.co/{repo}/resolve/main/{urllib.parse.quote(model_file)}'
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Speaky/1.1.2'})
+            with urllib.request.urlopen(req, timeout=120) as response, open(target + '.part', 'wb') as f:
+                total = int(response.headers.get('Content-Length') or 0)
+                done = 0
+                while True:
+                    chunk = response.read(256 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    done += len(chunk)
+                    if total:
+                        emit({'status': 'progress', 'modelId': model_id, 'percent': round(done / total * 100, 1), 'receivedMB': round(done / 1048576, 1)})
+            os.replace(target + '.part', target)
+            with open(os.path.join(dest, '.installed'), 'w') as f:
+                json.dump({'modelId': model_id, 'engine': engine, 'modelFile': model_file}, f)
+            emit({'status': 'ok', 'modelId': model_id, 'path': dest, 'modelFile': target})
+        except Exception as e:
+            emit({'status': 'error', 'modelId': model_id, 'message': str(e)})
+        return
 
     # GigaAM / Parakeet ONNX weights are fetched by the onnx-asr package itself
     if engine == 'onnx-asr':
@@ -205,6 +254,13 @@ def download_model(req):
 def install_engine(req):
     """One-shot `python -m pip install` of the engine package (click 'Install engine' in UI)."""
     engine = req.get('engine') or 'faster-whisper'
+    if engine == 'whisper-cpp':
+        cli = whisper_cli_path()
+        if cli:
+            emit({'status': 'ok', 'engine': engine, 'available': True})
+        else:
+            emit({'status': 'error', 'engine': engine, 'message': ENGINE_PIP_HINT[engine]})
+        return
     pkg = {
         'faster-whisper': 'faster-whisper',
         'gigaam': 'gigaam',
@@ -315,6 +371,36 @@ def _find_first(dirpath, *suffixes):
     return None
 
 
+def whisper_cpp_transcribe(audio_path, language, model_id, model_path):
+    cli = whisper_cli_path()
+    if not cli:
+        raise Exception(ENGINE_PIP_HINT['whisper-cpp'])
+    if model_path and os.path.isfile(model_path):
+        model_file = model_path
+    else:
+        model_file = _find_first(model_path, '.bin') if model_path else None
+        if not model_file:
+            model_file = _find_first(os.path.join(MODELS_DIR, 'whisper-cpp', model_id or ''), '.bin')
+    if not model_file:
+        raise Exception(f'whisper.cpp: модель не найдена для {model_id}')
+
+    with tempfile.TemporaryDirectory(prefix='speaky-whisper-cpp-') as output_dir:
+        output_base = os.path.join(output_dir, 'transcript')
+        cmd = [cli, '-m', model_file, '-f', audio_path, '-nt', '-otxt', '-of', output_base]
+        if language and language != 'auto':
+            cmd.extend(['-l', language])
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+        output_path = output_base + '.txt'
+        text = ''
+        if os.path.isfile(output_path):
+            with open(output_path, 'r', encoding='utf-8', errors='replace') as f:
+                text = f.read().strip()
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or '').strip().splitlines()
+            raise Exception(f'whisper-cli завершился с кодом {proc.returncode}: {detail[-1] if detail else "неизвестная ошибка"}')
+    return text, 0
+
+
 def sherpa_transcribe(audio_path, language, model_id, model_path):
     try:
         import sherpa_onnx
@@ -398,6 +484,8 @@ def do_transcribe(req):
 
     if engine == 'faster-whisper':
         text, duration = fw_transcribe(audio_path, language, model_id, model_path)
+    elif engine == 'whisper-cpp':
+        text, duration = whisper_cpp_transcribe(audio_path, language, model_id, model_path)
     elif engine == 'gigaam':
         text, duration = gigaam_transcribe(audio_path, language, model_id, model_path)
     elif engine == 'sherpa-onnx':

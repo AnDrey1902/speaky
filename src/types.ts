@@ -77,7 +77,7 @@ export interface PromptTemplate {
 
 /* ── Local speech model catalog ─────────────────────────────────────── */
 
-export type ModelEngine = 'faster-whisper' | 'gigaam' | 'sherpa-onnx' | 'onnx-asr';
+export type ModelEngine = 'faster-whisper' | 'whisper-cpp' | 'gigaam' | 'sherpa-onnx' | 'onnx-asr';
 
 export interface ModelCatalogEntry {
   id: string;
@@ -93,6 +93,8 @@ export interface ModelCatalogEntry {
   requires?: string;
   /** model key inside the engine (e.g. onnx-asr load_model id) if different from `id` */
   engineModelId?: string;
+  /** model filename in the engine's model repository (used by whisper.cpp) */
+  modelFile?: string;
 }
 
 export interface InstalledModelInfo extends ModelCatalogEntry {

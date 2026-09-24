@@ -56,6 +56,50 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     requires: 'faster-whisper'
   },
   {
+    id: 'whisper-cpp-tiny',
+    name: 'Whisper Tiny (whisper.cpp)',
+    engine: 'whisper-cpp',
+    huggingfaceId: 'ggerganov/whisper.cpp',
+    modelFile: 'ggml-tiny.bin',
+    languages: ['multi'],
+    sizeMB: 78,
+    description: 'Самая лёгкая модель для быстрого офлайн-распознавания через whisper.cpp.',
+    requires: 'whisper.cpp'
+  },
+  {
+    id: 'whisper-cpp-base',
+    name: 'Whisper Base (whisper.cpp)',
+    engine: 'whisper-cpp',
+    huggingfaceId: 'ggerganov/whisper.cpp',
+    modelFile: 'ggml-base.bin',
+    languages: ['multi'],
+    sizeMB: 148,
+    description: 'Компактная модель для слабых машин и быстрого старта через whisper.cpp.',
+    requires: 'whisper.cpp'
+  },
+  {
+    id: 'whisper-cpp-small',
+    name: 'Whisper Small (whisper.cpp)',
+    engine: 'whisper-cpp',
+    huggingfaceId: 'ggerganov/whisper.cpp',
+    modelFile: 'ggml-small.bin',
+    languages: ['multi'],
+    sizeMB: 488,
+    description: 'Хороший баланс скорости и качества для локального режима whisper.cpp.',
+    requires: 'whisper.cpp'
+  },
+  {
+    id: 'whisper-cpp-medium',
+    name: 'Whisper Medium (whisper.cpp)',
+    engine: 'whisper-cpp',
+    huggingfaceId: 'ggerganov/whisper.cpp',
+    modelFile: 'ggml-medium.bin',
+    languages: ['multi'],
+    sizeMB: 1530,
+    description: 'Более точная модель для мощных машин с whisper.cpp.',
+    requires: 'whisper.cpp'
+  },
+  {
     id: 'parakeet-tdt-0.6b-v3',
     name: 'Parakeet TDT 0.6B v3',
     engine: 'onnx-asr',

@@ -110,6 +110,9 @@ export function detectEngineFromFolder(dir: string): ModelEngine | undefined {
   if (files.includes('tokens.txt') || (files.includes('encoder.onnx') && files.includes('joiner.onnx'))) {
     return 'sherpa-onnx';
   }
+  if (files.some((f) => f.startsWith('ggml-') && f.endsWith('.bin'))) {
+    return 'whisper-cpp';
+  }
   if (files.includes('model.bin') && files.includes('config.json')) {
     return 'faster-whisper';
   }
@@ -132,7 +135,7 @@ export function validateModelFolder(dir: string): { ok: boolean; error?: string;
   if (!engine) {
     return {
       ok: false,
-      error: 'Не удалось определить движок. Нужны файлы faster-whisper (model.bin+config.json), sherpa-onnx (tokens.txt) или onnx-asr (*.onnx)'
+      error: 'Не удалось определить движок. Нужны файлы faster-whisper (model.bin+config.json), whisper.cpp (ggml-*.bin), sherpa-onnx (tokens.txt) или onnx-asr (*.onnx)'
     };
   }
   return { ok: true, engine };
@@ -183,7 +186,8 @@ export function downloadModel(
     modelId: entry.id,
     engine: entry.engine,
     huggingfaceId: entry.huggingfaceId,
-    engineModelId: entry.engineModelId
+    engineModelId: entry.engineModelId,
+    modelFile: entry.modelFile
   });
 
   const proc = spawn('python', [getScriptPath(), '--download', req], {
