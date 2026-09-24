@@ -38,6 +38,8 @@ const api = {
   },
   checkEngine: (engine: ModelEngine): Promise<{ available: boolean; error?: string; hint?: string }> =>
     ipcRenderer.invoke('models:check-engine', engine),
+  installEngine: (engine: ModelEngine): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('models:install-engine', engine),
   pickModelFolder: () => ipcRenderer.invoke('models:pick-folder'),
   registerCustomModel: (model: any): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('models:register-custom', model),
@@ -51,6 +53,11 @@ const api = {
     const handler = (_event: any, s: TextSnippet[]) => callback(s);
     ipcRenderer.on('storage:snippets-changed', handler);
     return () => ipcRenderer.removeListener('storage:snippets-changed', handler);
+  },
+  onHistoryChanged: (callback: (history: DictationHistoryItem[]) => void) => {
+    const handler = (_event: any, h: DictationHistoryItem[]) => callback(h);
+    ipcRenderer.on('storage:history-changed', handler);
+    return () => ipcRenderer.removeListener('storage:history-changed', handler);
   },
 
   // Window Controls

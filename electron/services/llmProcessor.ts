@@ -117,7 +117,7 @@ function buildCall(
         ? {
             url: 'https://api.groq.com/openai/v1/chat/completions',
             apiKey: settings.groqApiKey,
-            model: modelOverride || 'llama-3.3-70b-versatile',
+            model: modelOverride || 'qwen/qwen3.8-27b',
             maxTokens
           }
         : null;
@@ -224,7 +224,7 @@ function activeSystemPrompt(): string {
 /**
  * AI Speech Text Corrector:
  * Uses the active custom prompt template with the configured LLM provider
- * (Groq Llama-3.3-70b / OpenAI gpt-4o-mini), rule-based fallback offline.
+ * (Groq qwen3.8-27b / OpenAI gpt-4o-mini), rule-based fallback offline.
  */
 export async function refineTextWithLLM(text: string, context: ActiveContext): Promise<string> {
   const settings = storage.getSettings();
@@ -233,7 +233,7 @@ export async function refineTextWithLLM(text: string, context: ActiveContext): P
     return cleanTextRules(text, context);
   }
 
-  let styleInstruction = 'Естественная грамотная речь.';
+  let styleInstruction = 'Natural, literate speech. Keep the language of the dictated text (if the text is in Russian — reply in Russian, if in Ukrainian — in Ukrainian, etc.).';
   if (context.category === 'code' || context.category === 'terminal') {
     styleInstruction = 'Редактор кода/терминал. Технические термины, переменные и команды пиши на правильном английском (camelCase, snake_case, git команды). В конце строки не ставь точку.';
   } else if (context.category === 'chat') {
@@ -259,9 +259,11 @@ export async function refineTextWithLLM(text: string, context: ActiveContext): P
 const LANGUAGE_NAMES: Record<string, string> = {
   ru: 'русский',
   en: 'английский',
+  uk: 'украинский',
   es: 'испанский',
   de: 'немецкий',
   fr: 'французский',
+  it: 'итальянский',
   zh: 'китайский'
 };
 

@@ -27,12 +27,18 @@ export interface UpdateInfoState {
 
 let updateState: UpdateInfoState = {
   status: 'idle',
-  version: '1.0.6'
+  version: '1.1.0'
 };
 
 let downloadedInstallerPath: string | null = null;
 let directDownloadUrl: string | null = null;
 let directDownloadFileName: string | null = null;
+let startupCheckTimer: NodeJS.Timeout | null = null;
+let periodicCheckTimer: NodeJS.Timeout | null = null;
+
+/** Silent update checks happen 10s after launch, then every 6 hours */
+const STARTUP_CHECK_DELAY_MS = 10_000;
+const PERIODIC_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 function isVersionNewer(remoteVer: string, currentVer: string): boolean {
   const r = remoteVer.replace(/^v/, '').split('.').map(x => parseInt(x, 10) || 0);
@@ -59,6 +65,10 @@ async function fetchLatestGitHubRelease(): Promise<{
   });
 
   if (!res.ok) {
+    // 404 = no published releases yet (fresh repo) — not an error for the user
+    if (res.status === 404) {
+      throw new Error('NO_RELEASES');
+    }
     throw new Error(`GitHub API HTTP ${res.status}`);
   }
 
@@ -166,9 +176,9 @@ function streamDownload(
 }
 
 export function initAutoUpdater(getSettingsWin: () => BrowserWindow | null) {
-  // In dev / unpackaged mode, display '1.0.5' so user can test live updates.
-  // In production packaged mode, use official app.getVersion().
-  const currentVer = app.isPackaged ? (app.getVersion() || '1.0.6') : '1.0.5';
+  // In dev / unpackaged mode, display the package version so the card in
+  // Settings looks sane; in production packaged mode, official app.getVersion().
+  const currentVer = app.isPackaged ? (app.getVersion() || '1.1.0') : '1.1.0';
   updateState.version = currentVer;
 
   autoUpdater.logger = console;
@@ -244,10 +254,8 @@ export function initAutoUpdater(getSettingsWin: () => BrowserWindow | null) {
   // IPC Handlers
   ipcMain.handle('updater:get-status', () => updateState);
 
-  ipcMain.handle('updater:check', async () => {
-    updateState = { ...updateState, status: 'checking', error: undefined };
-    broadcastState();
-
+  /** Core check shared by the manual button and the scheduled silent checks */
+  async function runCheck(): Promise<UpdateInfoState> {
     try {
       // Packaged app: try electron-updater first
       if (app.isPackaged) {
@@ -267,7 +275,7 @@ export function initAutoUpdater(getSettingsWin: () => BrowserWindow | null) {
         throw new Error('Не удалось получить данные релиза');
       }
 
-      const activeVer = app.isPackaged ? (app.getVersion() || '1.0.6') : '1.0.5';
+      const activeVer = app.isPackaged ? (app.getVersion() || '1.1.0') : '1.1.0';
       const hasUpdate = isVersionNewer(relInfo.latestVersion, activeVer);
 
       directDownloadUrl = relInfo.downloadUrl;
@@ -289,22 +297,54 @@ export function initAutoUpdater(getSettingsWin: () => BrowserWindow | null) {
           error: undefined
         };
       }
-      broadcastState();
-      return updateState;
     } catch (err: any) {
       console.error('[AutoUpdater] Check error:', err);
       const msg = err?.message || '';
-      updateState = {
-        ...updateState,
-        status: 'error',
-        error: msg.includes('ENOTFOUND') || msg.includes('fetch')
-          ? 'Нет подключения к интернету'
-          : 'Сервер обновлений временно недоступен'
-      };
-      broadcastState();
-      return updateState;
+      if (msg.includes('NO_RELEASES')) {
+        // Fresh repository without releases — stay quiet
+        updateState = {
+          ...updateState,
+          status: 'not-available',
+          latestVersion: undefined,
+          error: undefined
+        };
+      } else {
+        updateState = {
+          ...updateState,
+          status: 'error',
+          error: msg.includes('ENOTFOUND') || msg.includes('fetch')
+            ? 'Нет подключения к интернету'
+            : 'Сервер обновлений временно недоступен'
+        };
+      }
     }
+    broadcastState();
+    return updateState;
+  }
+
+  ipcMain.handle('updater:check', async () => {
+    updateState = { ...updateState, status: 'checking', error: undefined };
+    broadcastState();
+    return await runCheck();
   });
+
+  // Scheduled silent checks: 10s after launch, then every 6 hours.
+  // Only in packaged builds — in dev the version is meaningless.
+  if (app.isPackaged) {
+    startupCheckTimer = setTimeout(() => {
+      runCheck().then((state) => {
+        if (state.status === 'available') {
+          console.log(`[AutoUpdater] Update available: v${state.latestVersion}`);
+        }
+      });
+    }, STARTUP_CHECK_DELAY_MS);
+
+    periodicCheckTimer = setInterval(() => {
+      runCheck();
+    }, PERIODIC_CHECK_INTERVAL_MS);
+    // Do not keep the app alive just for the timer
+    periodicCheckTimer.unref();
+  }
 
   ipcMain.handle('updater:download', async () => {
     updateState = { ...updateState, status: 'downloading', progressPercent: 0, error: undefined };

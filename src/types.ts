@@ -12,10 +12,10 @@ export interface ActiveContext {
   friendlyAppName?: string;
 }
 
-export type SpeechLanguage = 'ru' | 'en' | 'es' | 'de' | 'fr' | 'zh' | 'auto';
-export type UILanguage = 'auto' | 'ru' | 'en' | 'es' | 'de' | 'fr' | 'zh';
+export type SpeechLanguage = 'ru' | 'en' | 'es' | 'de' | 'fr' | 'zh' | 'uk' | 'it' | 'auto';
+export type UILanguage = 'auto' | 'ru' | 'en' | 'es' | 'de' | 'fr' | 'zh' | 'uk' | 'it';
 /** Target languages supported by the dedicated Translate mode */
-export type TranslateLanguage = 'en' | 'ru' | 'es' | 'de' | 'fr' | 'zh';
+export type TranslateLanguage = 'en' | 'ru' | 'es' | 'de' | 'fr' | 'zh' | 'uk' | 'it';
 
 export interface AppSettings {
   hotkey: string;
@@ -166,6 +166,8 @@ export interface SpeakyAPI {
   clearHistory: () => Promise<void>;
   exportHistory: (format?: 'md' | 'txt') => Promise<{ success: boolean; filePath?: string; reason?: string }>;
   onSnippetsChanged: (callback: (snippets: TextSnippet[]) => void) => () => void;
+  /** Pushed by main after each dictation so the open History tab stays live */
+  onHistoryChanged: (callback: (history: DictationHistoryItem[]) => void) => () => void;
 
   /* ── Post-processing prompts ── */
   getPrompts: () => Promise<PromptTemplate[]>;
@@ -179,6 +181,8 @@ export interface SpeakyAPI {
   checkEngine: (engine: ModelEngine) => Promise<{ available: boolean; error?: string; hint?: string }>;
   pickModelFolder: () => Promise<{ path: string; suggestedName: string; detectedEngine?: ModelEngine } | null>;
   checkHotkey: (accelerator: string) => Promise<{ available: boolean; error?: string }>;
+  /** One-click install of a python engine (pip install faster-whisper / onnx-asr / ...) */
+  installEngine: (engine: ModelEngine) => Promise<{ ok: boolean; error?: string }>;
   registerCustomModel: (model: CustomLocalModel) => Promise<{ ok: boolean; error?: string }>;
   unregisterCustomModel: (modelId: string) => Promise<{ ok: boolean; error?: string }>;
 

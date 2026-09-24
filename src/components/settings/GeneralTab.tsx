@@ -66,10 +66,12 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onChange }) =>
         >
           <option value="auto">🌐 {t.uiLangAuto}</option>
           <option value="ru">🇷🇺 Русский</option>
+          <option value="uk">🇺🇦 Українська</option>
           <option value="en">🇬🇧 English</option>
           <option value="es">🇪🇸 Español</option>
           <option value="de">🇩🇪 Deutsch</option>
           <option value="fr">🇫🇷 Français</option>
+          <option value="it">🇮🇹 Italiano</option>
           <option value="zh">🇨🇳 中文</option>
         </Select>
       </SettingRow>

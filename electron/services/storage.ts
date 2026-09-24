@@ -296,6 +296,19 @@ class StorageService {
       this.data.history = this.data.history.slice(0, 200);
     }
     this.save();
+    this.notifyHistoryChanged();
+  }
+
+  /** Push updated history to open windows (live History tab) */
+  private notifyHistoryChanged(): void {
+    try {
+      const { BrowserWindow } = require('electron');
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('storage:history-changed', this.data.history);
+        }
+      }
+    } catch {}
   }
 
   clearHistory(): void {

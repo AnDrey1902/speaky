@@ -62,7 +62,13 @@ export const SettingsView: React.FC = () => {
     const unsubSnippets = window.speakyAPI.onSnippetsChanged?.((sn: TextSnippet[]) => {
       if (sn) setSnippets(sn);
     });
-    return () => unsubSnippets?.();
+    const unsubHistory = window.speakyAPI.onHistoryChanged?.((h: DictationHistoryItem[]) => {
+      if (h) setHistory(h);
+    });
+    return () => {
+      unsubSnippets?.();
+      unsubHistory?.();
+    };
   }, []);
 
   const flashSaved = () => {

@@ -24,7 +24,7 @@ export const FloatingHud: React.FC = () => {
   const [mockVoicing, setMockVoicing] = useState<boolean>(false);
   const [selectionInfo, setSelectionInfo] = useState<{ hasSelection: boolean; snippet: string }>({ hasSelection: false, snippet: '' });
   const [isRewriteResult, setIsRewriteResult] = useState<boolean>(false);
-  const [currentLanguage, setCurrentLanguage] = useState<'ru' | 'en' | 'auto'>('ru');
+  const [currentLanguage, setCurrentLanguage] = useState<'ru' | 'uk' | 'en' | 'auto'>('ru');
   const [uiLanguage, setUiLanguage] = useState<UILanguage>('auto');
   const [appMode, setAppMode] = useState<'toggle' | 'ptt'>('toggle');
   const [savedMacroInfo, setSavedMacroInfo] = useState<{ trigger: string; replacement: string } | null>(null);
@@ -385,7 +385,9 @@ export const FloatingHud: React.FC = () => {
 
   const cycleLanguage = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const nextLang = currentLanguage === 'ru' ? 'en' : currentLanguage === 'en' ? 'auto' : 'ru';
+    const order = ['ru', 'uk', 'en', 'auto'] as const;
+    const idx = order.indexOf(currentLanguage as any);
+    const nextLang = order[(idx + 1) % order.length];
     setCurrentLanguage(nextLang);
     window.speakyAPI?.updateSettings?.({ language: nextLang });
   };

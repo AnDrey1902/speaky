@@ -267,6 +267,67 @@ export function removeModel(modelId: string): void {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+/**
+ * One-click install of a python engine dependency (pip).
+ * Runs the worker one-shot with `--install-engine`; emits indeterminate progress.
+ */
+export function installEngine(
+  engine: ModelEngine,
+  onProgress: (ev: ModelProgressEvent) => void
+): { promise: Promise<void>; cancel: () => void } {
+  const req = JSON.stringify({ action: 'install-engine', engine });
+  const proc = spawn('python', [getScriptPath(), '--install-engine', req], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: pythonEnv()
+  });
+
+  let settled = false;
+  let stderrBuf = '';
+
+  const promise = new Promise<void>((resolve, reject) => {
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (err) {
+        onProgress({ modelId: `engine:${engine}`, state: 'error', error: err.message });
+        reject(err);
+      } else {
+        onProgress({ modelId: `engine:${engine}`, state: 'done', percent: 100 });
+        resolve();
+      }
+    };
+
+    proc.stdout?.on('data', (chunk) => {
+      for (const line of chunk.toString().split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const data = JSON.parse(trimmed);
+          if (data.status === 'progress') {
+            onProgress({ modelId: `engine:${engine}`, state: 'downloading', percent: data.percent });
+          } else if (data.status === 'ok') {
+            finish();
+          } else if (data.status === 'error') {
+            finish(new Error(data.message || `Ошибка установки движка ${engine}`));
+            try { proc.kill(); } catch {}
+          }
+        } catch {}
+      }
+    });
+
+    proc.stderr?.on('data', (d) => { stderrBuf += d.toString(); });
+    proc.on('error', (err) => finish(err));
+    proc.on('exit', (code) => {
+      if (!settled) {
+        finish(new Error(`Установка прервана (код ${code})${stderrBuf ? ': ' + stderrBuf.split('\n').filter(Boolean).slice(-2).join(' | ') : ''}`));
+      }
+    });
+  });
+
+  return { promise, cancel: () => { try { proc.kill(); } catch {} } };
+}
+
 /** Check whether a python engine dependency is importable */
 export function checkEngine(engine: ModelEngine): Promise<{ available: boolean; error?: string; hint?: string }> {
   return new Promise((resolve) => {

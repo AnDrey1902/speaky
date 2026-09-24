@@ -13,9 +13,11 @@ interface TranslateTabProps {
 const TARGET_LANGUAGES: { id: TranslateLanguage; label: string }[] = [
   { id: 'en', label: '🇬🇧 Английский' },
   { id: 'ru', label: '🇷🇺 Русский' },
+  { id: 'uk', label: '🇺🇦 Українська' },
   { id: 'es', label: '🇪🇸 Испанский' },
   { id: 'de', label: '🇩🇪 Немецкий' },
   { id: 'fr', label: '🇫🇷 Французский' },
+  { id: 'it', label: '🇮🇹 Итальянский' },
   { id: 'zh', label: '🇨🇳 Китайский' }
 ];
 

@@ -12,7 +12,10 @@ import { storage } from '../../services/storage';
 import { TextSnippet } from '../../../src/types';
 
 export class ExecutionManager {
-  private readonly STT_TIMEOUT_MS = 10000; // 10s max for STT
+  // 10s is enough for cloud STT; local models on CPU need a larger budget
+  // (first run of a large model loads weights for tens of seconds).
+  private readonly STT_TIMEOUT_MS = 10000;
+  private readonly STT_TIMEOUT_LOCAL_MS = 120000;
 
   constructor(
     private tooling: ToolRegistry,
@@ -43,11 +46,12 @@ export class ExecutionManager {
     this.observability.startTrace(traceId, settings.provider, enrichedContext.activeContext.processName);
 
     try {
-      // 4. Execution: STT with timeout
+      // 4. Execution: STT with timeout (generous budget for local engines)
+      const isLocal = settings.provider === 'local';
       const sttResult = await this.observability.recordSpan(traceId, 'stt_transcribe', async () => {
         return await this.withTimeout(
           transcribeAudio(input.audioBuffer, input.mimeType),
-          this.STT_TIMEOUT_MS,
+          isLocal ? this.STT_TIMEOUT_LOCAL_MS : this.STT_TIMEOUT_MS,
           'STT Request timed out'
         );
       });
@@ -217,6 +221,24 @@ export class ExecutionManager {
       this.lifecycle.transitionTo('ERROR', traceId, { error: err?.message });
       this.observability.finishTrace(traceId, { injected: false });
       console.error(`[ExecutionManager] Pipeline error on ${traceId}:`, err);
+
+      // Persist failed dictations too, so history does not silently lose records
+      try {
+        const failedContext = enrichedContext?.activeContext;
+        storage.addHistoryItem({
+          id: traceId,
+          timestamp: Date.now(),
+          rawText: `[Ошибка] ${err?.message || 'неизвестная ошибка'}`,
+          processedText: '',
+          durationMs: 0,
+          latencyMs: 0,
+          appContext: failedContext?.processName || '',
+          category: failedContext?.category || 'general'
+        });
+      } catch (historyErr) {
+        console.warn('[ExecutionManager] Failed to persist error history item:', historyErr);
+      }
+
       throw err;
     }
   }

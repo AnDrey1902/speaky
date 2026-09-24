@@ -26,6 +26,7 @@ import {
   downloadModel,
   removeModel,
   checkEngine,
+  installEngine,
   validateModelFolder,
   registerCustomModel,
   unregisterCustomModel
@@ -722,6 +723,23 @@ function setupIpcHandlers() {
     }
   });
   ipcMain.handle('models:check-engine', (_event, engine: ModelEngine) => checkEngine(engine));
+
+  ipcMain.handle('models:install-engine', async (_event, engine: ModelEngine) => {
+    const sendProgress = (ev: ModelProgressEvent) => {
+      for (const win of [hudWindow, settingsWindow]) {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('model:progress', ev);
+        }
+      }
+    };
+    try {
+      const { promise } = installEngine(engine, sendProgress);
+      await promise;
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Ошибка установки движка' };
+    }
+  });
 
   ipcMain.handle('models:pick-folder', async () => {
     const win = settingsWindow || BrowserWindow.getFocusedWindow() || undefined;

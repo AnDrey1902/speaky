@@ -118,6 +118,29 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
     onChange({ provider: 'local', localModelId: modelId });
   };
 
+  /* ── One-click engine install ── */
+  const handleInstallEngine = async (engine: ModelEngine) => {
+    setModelError(null);
+    setEngines((prev) => ({ ...prev, [engine]: { ...prev[engine], checking: true } }));
+    const res = await window.speakyAPI?.installEngine?.(engine);
+    if (res && !res.ok) {
+      setModelError(res.error || 'Ошибка установки движка');
+    }
+    // Re-check availability regardless of outcome
+    checkedRef.current.add(engine);
+    setEngines((prev) => ({ ...prev, [engine]: { checking: true } }));
+    const check = await window.speakyAPI?.checkEngine?.(engine);
+    setEngines((prev) => ({
+      ...prev,
+      [engine]: { available: check?.available, hint: check?.hint, checking: false }
+    }));
+    if (check?.available) refreshCatalog();
+  };
+
+  const engineInstalling = (engine: ModelEngine) => {
+    return progress[`engine:${engine}`]?.state === 'downloading';
+  };
+
   /* ── Custom folder model ── */
   const [draftFolder, setDraftFolder] = useState<{
     path: string;
@@ -301,9 +324,25 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
                       {m.description}
                     </p>
                     {engineMissing && (
-                      <p className="text-[10px] text-amber-400 mt-1 font-mono">
-                        {t.engineMissing}: {engine?.hint || `pip install ${m.requires}`}
-                      </p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <p className="text-[10px] text-amber-400 font-mono">
+                          {t.engineMissing}: {engine?.hint || `pip install ${m.requires}`}
+                        </p>
+                        <button
+                          onClick={() => handleInstallEngine(m.engine)}
+                          disabled={engineInstalling(m.engine)}
+                          className="px-2 py-0.5 rounded-md text-[10px] font-semibold text-amber-200 bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 disabled:opacity-50 transition-all cursor-pointer flex items-center gap-1"
+                        >
+                          {engineInstalling(m.engine) ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              {t.downloadingModel}…
+                            </>
+                          ) : (
+                            t.installEngine
+                          )}
+                        </button>
+                      </div>
                     )}
                     {m.installed && m.sizeOnDiskMB !== undefined && (
                       <p className="text-[10px] text-zinc-600 mt-1 font-mono">

@@ -46,7 +46,7 @@ export const PostprocessTab: React.FC<PostprocessTabProps> = ({
 
   const defaultModelFor = (p: LLMProvider): string => {
     switch (p) {
-      case 'groq': return 'llama-3.3-70b-versatile';
+      case 'groq': return 'qwen/qwen3.8-27b';
       case 'openai': return 'gpt-4o-mini';
       case 'gemini': return 'gemini-2.5-flash';
       case 'openai-compatible': return '';
@@ -63,7 +63,7 @@ export const PostprocessTab: React.FC<PostprocessTabProps> = ({
     {
       id: 'groq',
       name: 'Groq',
-      model: settings.llmModels?.groq || 'llama-3.3-70b-versatile',
+      model: settings.llmModels?.groq || 'qwen/qwen3.8-27b',
       icon: Zap,
       keySet: Boolean(settings.groqApiKey),
       href: 'https://console.groq.com/keys'

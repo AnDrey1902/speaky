@@ -14,6 +14,7 @@ import sys
 import os
 import json
 import time
+import subprocess
 import urllib.request
 import urllib.parse
 
@@ -199,6 +200,34 @@ def download_model(req):
         'sizeMB': round(total / 1048576, 1),
         'path': dest
     })
+
+
+def install_engine(req):
+    """One-shot `python -m pip install` of the engine package (click 'Install engine' in UI)."""
+    engine = req.get('engine') or 'faster-whisper'
+    pkg = {
+        'faster-whisper': 'faster-whisper',
+        'gigaam': 'gigaam',
+        'sherpa-onnx': 'sherpa-onnx',
+        'onnx-asr': 'onnx-asr[cpu,hub]',
+    }.get(engine)
+    if not pkg:
+        emit({'status': 'error', 'engine': engine, 'message': f'Unknown engine: {engine}'})
+        return
+    emit({'status': 'progress', 'modelId': f'engine:{engine}', 'percent': -1})
+    proc = subprocess.Popen(
+        [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', pkg],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace'
+    )
+    for _line in proc.stdout or []:
+        pass  # consume; progress is indeterminate (spinner in UI)
+    code = proc.wait()
+    ok, err = engine_available(engine)
+    if code == 0 and ok:
+        emit({'status': 'ok', 'engine': engine, 'available': True})
+    else:
+        tail = (err or '').strip().splitlines()[-1] if err else f'pip exit code {code}'
+        emit({'status': 'error', 'engine': engine, 'message': f'Не удалось установить движок {engine}: {tail}'})
 
 
 def check_engine(req):
@@ -395,6 +424,8 @@ def run_request(req):
         emit({'status': 'ok', 'warmed': True})
     elif action == 'check':
         check_engine(req)
+    elif action == 'install-engine':
+        install_engine(req)
     elif action == 'download':
         download_model(req)
     elif action == 'transcribe':
@@ -403,7 +434,7 @@ def run_request(req):
         emit({'status': 'error', 'message': f'Unknown action: {action}'})
 
 
-if len(sys.argv) >= 3 and sys.argv[1] in ('--check', '--download', '--transcribe'):
+if len(sys.argv) >= 3 and sys.argv[1] in ('--check', '--download', '--transcribe', '--install-engine'):
     # One-shot mode used by the model manager
     try:
         req = json.loads(sys.argv[2])
