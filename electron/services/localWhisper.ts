@@ -1,148 +1,263 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import readline from 'readline';
-import { app } from 'electron';
+import { Worker } from 'worker_threads';
 import { TranscriptionResult } from './sttService';
-import { getCatalogEntry, getModelsDir, isModelInstalled as isModelInstalledByEntry, findCustomModel } from './modelManager';
+import {
+  getWhisperCliPath,
+  getTranscribeDllDir,
+  isWhisperCliAvailable,
+  getInstalledModelPath,
+  getInstalledModelEngine,
+  findCustomModel,
+  resolveCustomModelFile
+} from './modelManager';
 
-let workerProcess: ChildProcess | null = null;
-let workerRl: readline.Interface | null = null;
-let pendingResolvers: Array<{
-  resolve: (val: any) => void;
-  reject: (err: any) => void;
+/**
+ * Local transcription orchestrator. Two bundled engines, no Python:
+ *  - whisper.cpp   → spawns bundled whisper-cli.exe (one process per dictation)
+ *  - transcribe.cpp → worker thread keeps transcribe.dll + model in RAM (fast warm runs)
+ * Input: 16kHz mono PCM WAV (produced by the renderer recorder).
+ */
+
+const RUN_TIMEOUT_MS = 120000;
+
+export async function checkLocalWhisperAvailable(): Promise<{ available: boolean; error?: string }> {
+  if (!getInstalledModelPath()) {
+    return { available: false, error: 'Локальная модель не скачана (Настройки → Модели)' };
+  }
+  return { available: true };
+}
+
+/* ── Engine resolution ────────────────────────────────────────────── */
+
+function resolveModel(
+  modelId?: string
+): { file: string; engine: 'whisper.cpp' | 'transcribe.cpp' } | undefined {
+  const custom = modelId ? findCustomModel(modelId) : undefined;
+  if (custom) {
+    const file = resolveCustomModelFile(custom);
+    if (file) {
+      // Custom gguf files run on transcribe.cpp; legacy .bin on whisper.cpp
+      const isGguf = file.toLowerCase().endsWith('.gguf');
+      return { file, engine: isGguf ? 'transcribe.cpp' : 'whisper.cpp' };
+    }
+  }
+  const installed = getInstalledModelPath(modelId);
+  if (installed) {
+    const engine = getInstalledModelEngine(modelId) || 'whisper.cpp';
+    return { file: installed, engine };
+  }
+  return undefined;
+}
+
+/* ── transcribe.cpp (koffi worker) ─────────────────────────────────── */
+
+interface PendingRequest {
+  resolve: (value: any) => void;
+  reject: (err: Error) => void;
   timer: NodeJS.Timeout;
-}> = [];
-
-function getScriptPath(): string {
-  const isDev = !app.isPackaged;
-  if (isDev) {
-    return path.join(__dirname, '..', 'resources', 'scripts', 'whisper_worker.py');
-  }
-  return path.join(process.resourcesPath, 'scripts', 'whisper_worker.py');
 }
 
-/**
- * Checks whether a local speech engine is available in the system environment.
- * The selected model is honored so a whisper.cpp-only setup can be used offline.
- */
-export async function checkLocalWhisperAvailable(modelId?: string): Promise<{ available: boolean; error?: string }> {
-  const entry = modelId ? getCatalogEntry(modelId) : undefined;
-  const engine = entry?.engine;
-  const check = async (requestedEngine: 'faster-whisper' | 'whisper-cpp') => {
-    return new Promise<{ available: boolean; error?: string }>((resolve) => {
-      const request = JSON.stringify({ action: 'check', engine: requestedEngine });
-      const proc = spawn('python', [getScriptPath(), '--check', request], {
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe']
-      });
-      let output = '';
-      proc.stdout?.on('data', (d) => { output += d.toString(); });
-      proc.on('close', () => {
-        try {
-          const data = JSON.parse(output.trim());
-          resolve({ available: Boolean(data.available), error: data.error });
-        } catch {
-          resolve({ available: false, error: 'Не удалось проверить локальный движок' });
-        }
-      });
-      proc.on('error', (err) => resolve({ available: false, error: err.message }));
-    });
-  };
+let worker: Worker | null = null;
+let workerReady = false;
+let pending: PendingRequest | null = null;
+let seqCounter = 0;
 
-  if (engine === 'whisper-cpp') return check('whisper-cpp');
-  if (engine) return check('faster-whisper');
-  const faster = await check('faster-whisper');
-  return faster.available ? faster : check('whisper-cpp');
-}
-
-/**
- * Spawns or returns existing persistent faster-whisper worker process
- */
-function getWorker(): ChildProcess {
-  if (workerProcess && !workerProcess.killed) {
-    return workerProcess;
+function getWorker(): Promise<Worker> {
+  if (worker) return Promise.resolve(worker);
+  const dllDir = getTranscribeDllDir();
+  if (!fs.existsSync(path.join(dllDir, 'transcribe.dll'))) {
+    return Promise.reject(new Error('transcribe.dll не найден в комплекте приложения'));
   }
-
-  const scriptPath = getScriptPath();
-  console.log('[LocalWhisper] Spawning worker from:', scriptPath);
-
-  workerProcess = spawn('python', [scriptPath], {
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, SPEAKY_MODELS_DIR: getModelsDir() }
-  });
-
-  if (workerProcess.stdout) {
-    workerRl = readline.createInterface({ input: workerProcess.stdout });
-    workerRl.on('line', (line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      try {
-        const data = JSON.parse(trimmed);
-        const next = pendingResolvers.shift();
-        if (next) {
-          clearTimeout(next.timer);
-          next.resolve(data);
-        }
-      } catch (err) {
-        console.error('[LocalWhisper] Failed to parse worker output:', trimmed, err);
-      }
-    });
-  }
-
-  workerProcess.stderr?.on('data', (data) => {
-    console.log(`[LocalWhisper:stderr] ${data.toString().trim()}`);
-  });
-
-  workerProcess.on('exit', (code, signal) => {
-    console.warn(`[LocalWhisper] Worker exited with code ${code}, signal ${signal}`);
-    workerProcess = null;
-    workerRl = null;
-    // Reject any waiting callers
-    while (pendingResolvers.length > 0) {
-      const req = pendingResolvers.shift();
-      if (req) {
-        clearTimeout(req.timer);
-        req.reject(new Error('Локальный процесс Whisper внезапно завершился'));
-      }
-    }
-  });
-
-  return workerProcess;
-}
-
-/**
- * Sends a JSON command to the worker and waits for JSON line response
- */
-function sendWorkerCommand(cmd: Record<string, any>, timeoutMs = 25000): Promise<any> {
   return new Promise((resolve, reject) => {
-    try {
-      const worker = getWorker();
-      if (!worker.stdin || worker.killed) {
-        return reject(new Error('Локальный процесс распознавания не готов'));
-      }
-
-      const timer = setTimeout(() => {
-        const idx = pendingResolvers.findIndex(p => p.timer === timer);
-        if (idx !== -1) {
-          pendingResolvers.splice(idx, 1);
+    const workerPath = process.env.SPEAKY_TRANSCRIBE_WORKER || path.join(__dirname, 'transcribeWorker.js');
+    const w = new Worker(workerPath, {
+      workerData: { dllDir }
+    });
+    let settled = false;
+    w.on('message', (msg: any) => {
+      if (msg.type === 'hello') {
+        if (!settled) { settled = true; resolve(w); }
+      } else if (msg.type === 'ready') {
+        workerReady = true;
+        if (!settled) { settled = true; resolve(w); }
+      } else if (msg.type === 'error') {
+        if (!settled) { settled = true; reject(new Error(msg.message)); }
+        else if (pending) {
+          clearTimeout(pending.timer);
+          const p = pending;
+          pending = null;
+          p.reject(new Error(msg.message));
         }
-        reject(new Error('Таймаут локального распознавания'));
-      }, timeoutMs);
-
-      pendingResolvers.push({ resolve, reject, timer });
-      worker.stdin.write(JSON.stringify(cmd) + '\n');
-    } catch (err) {
-      reject(err);
-    }
+      } else if (msg.type === 'result' || msg.type === 'closed') {
+        if (pending) {
+          clearTimeout(pending.timer);
+          const p = pending;
+          pending = null;
+          if (msg.type === 'result') p.resolve(msg);
+          else p.resolve({ text: '', detectedLanguage: '', backend: '' });
+        }
+      }
+    });
+    w.on('error', (err) => {
+      if (!settled) { settled = true; reject(err); }
+      worker = null;
+      workerReady = false;
+    });
+    w.on('exit', () => {
+      if (worker === w) { worker = null; workerReady = false; }
+      if (pending) {
+        clearTimeout(pending.timer);
+        const p = pending;
+        pending = null;
+        p.reject(new Error('Движок transcribe.cpp остановлен'));
+      }
+    });
+    worker = w;
   });
 }
 
-/**
- * Transcribe an audio buffer locally using faster-whisper
- */
+function stopWorker(): void {
+  if (worker) {
+    const w = worker;
+    worker = null;
+    workerReady = false;
+    w.postMessage({ type: 'close' });
+    setTimeout(() => { try { w.terminate(); } catch {} }, 2000).unref?.();
+  }
+}
+
+/** Serialize engine ops: one open/run at a time (0.x library limitation anyway) */
+let engineChain: Promise<unknown> = Promise.resolve();
+function withEngineLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = engineChain.then(fn, fn);
+  engineChain = run.catch(() => {});
+  return run;
+}
+
+async function transcribeWithTranscribeCpp(
+  modelFile: string,
+  samples: Float32Array,
+  language: string
+): Promise<{ text: string; backend: string }> {
+  return withEngineLock(async () => {
+    const w = await getWorker();
+
+    const result = await new Promise<any>((resolve, reject) => {
+      const prevPending = pending;
+      if (prevPending) {
+        clearTimeout(prevPending.timer);
+        prevPending.reject(new Error('Прервано новым запросом'));
+      }
+      const timer = setTimeout(() => {
+        pending = null;
+        reject(new Error('Таймаут распознавания transcribe.cpp'));
+      }, RUN_TIMEOUT_MS);
+      pending = { resolve, reject, timer };
+      w.postMessage({ type: 'open', modelPath: modelFile, language });
+      w.postMessage({ type: 'run', samples, seq: ++seqCounter });
+    });
+
+    return { text: String(result.text || ''), backend: String(result.backend || '') };
+  });
+}
+
+/* ── WAV decoding (shared by both engines) ─────────────────────────── */
+
+function decodeWavToMono16k(
+  buffer: Buffer
+): { samples: Float32Array; sampleRate: number; channels: number; bits: number } | undefined {
+  if (buffer.length < 44 || buffer.toString('ascii', 0, 4) !== 'RIFF') return undefined;
+  let pos = 12, fmt: any = null, data: Buffer | undefined;
+  while (pos < buffer.length - 8) {
+    const id = buffer.toString('ascii', pos, pos + 4);
+    const sz = buffer.readUInt32LE(pos + 4);
+    if (id === 'fmt ') {
+      fmt = {
+        format: buffer.readUInt16LE(pos + 8),
+        ch: buffer.readUInt16LE(pos + 10),
+        rate: buffer.readUInt32LE(pos + 12),
+        bits: buffer.readUInt16LE(pos + 22)
+      };
+    } else if (id === 'data') {
+      data = buffer.subarray(pos + 8, pos + 8 + sz);
+      break;
+    }
+    pos += 8 + sz + (sz & 1);
+  }
+  if (!fmt || !data || fmt.bits !== 16) return undefined;
+
+  let samples = new Float32Array(Math.floor(data.length / 2));
+  for (let i = 0; i < samples.length; i++) samples[i] = data.readInt16LE(i * 2) / 32768;
+  if (fmt.ch > 1) {
+    const mono = new Float32Array(Math.floor(samples.length / fmt.ch));
+    for (let i = 0; i < mono.length; i++) {
+      let acc = 0;
+      for (let c = 0; c < fmt.ch; c++) acc += samples[i * fmt.ch + c];
+      mono[i] = acc / fmt.ch;
+    }
+    samples = mono;
+  }
+  return { samples, sampleRate: fmt.rate, channels: fmt.ch, bits: fmt.bits };
+}
+
+/** Simple linear resampler to 16kHz (sufficient for speech, no deps) */
+function resampleLinear(samples: Float32Array, fromRate: number): Float32Array {
+  if (fromRate === 16000) return samples;
+  const ratio = 16000 / fromRate;
+  const outLen = Math.floor(samples.length * ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const src = i / ratio;
+    const i0 = Math.floor(src);
+    const i1 = Math.min(i0 + 1, samples.length - 1);
+    const frac = src - i0;
+    out[i] = samples[i0] * (1 - frac) + samples[i1] * frac;
+  }
+  return out;
+}
+
+/* ── whisper.cpp (spawn CLI) ──────────────────────────────────────── */
+
+async function transcribeWithWhisperCpp(
+  cliPath: string,
+  modelPath: string,
+  tempPath: string,
+  language: string
+): Promise<string> {
+  const args = ['-m', modelPath, '-f', tempPath, '-nt', '-np'];
+  if (language && language !== 'auto') args.push('-l', language);
+
+  return new Promise<string>((resolve, reject) => {
+    const proc = spawn(cliPath, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      try { proc.kill(); } catch {}
+      reject(new Error('Таймаут локального распознавания (120с)'));
+    }, RUN_TIMEOUT_MS);
+
+    proc.stdout?.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr?.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      reject(new Error(`Не удалось запустить whisper-cli: ${err.message}`));
+    });
+    proc.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(stdout);
+      else {
+        const tail = stderr.split('\n').filter(Boolean).slice(-3).join(' | ');
+        reject(new Error(`whisper-cli завершился с кодом ${code}${tail ? ': ' + tail : ''}`));
+      }
+    });
+  });
+}
+
+/* ── Public API ───────────────────────────────────────────────────── */
+
 export async function transcribeAudioLocal(
   audioBuffer: Buffer,
   mimeType = 'audio/wav',
@@ -150,59 +265,50 @@ export async function transcribeAudioLocal(
   modelId?: string
 ): Promise<TranscriptionResult> {
   const startTime = Date.now();
-  const ext = mimeType.includes('webm') ? '.webm' : '.wav';
-  const tempPath = path.join(os.tmpdir(), `speaky_local_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
 
-  // Resolve engine + model path: custom folder first, then the Speaky catalog
-  const custom = modelId ? findCustomModel(modelId) : undefined;
-  const entry = custom ? undefined : getCatalogEntry(modelId || 'whisper-large-v3-turbo');
-  const engine = custom?.engine || entry?.engine || 'faster-whisper';
-  const resolvedId = custom?.id || entry?.id || modelId || 'whisper-small';
-  const engineModelId = custom?.engineModelId || entry?.engineModelId;
-  let modelPath: string | undefined;
-  if (custom) {
-    modelPath = custom.path;
-  } else if (entry && isModelInstalledByEntry(entry)) {
-    modelPath = path.join(getModelsDir(), entry.engine, entry.id);
+  const resolved = resolveModel(modelId);
+  if (!resolved) {
+    throw new Error('Локальная модель не скачана. Скачайте её в Настройки → Модели.');
   }
+  const { file: modelFile, engine } = resolved;
 
-  try {
-    await fs.promises.writeFile(tempPath, audioBuffer);
-
-    const res = await sendWorkerCommand({
-      action: 'transcribe',
-      path: tempPath,
-      language,
-      engine,
-      modelId: resolvedId,
-      engineModelId,
-      modelPath
-    }, 60000);
-
-    if (res.status !== 'ok') {
-      throw new Error(res.message || 'Ошибка локального распознавания');
+  let text: string;
+  if (engine === 'transcribe.cpp') {
+    // In-process engine: decode WAV → Float32 PCM ourselves
+    const wav = decodeWavToMono16k(audioBuffer);
+    if (!wav) throw new Error('Ожидается WAV PCM16 от рекордера');
+    const pcm = resampleLinear(wav.samples, wav.sampleRate);
+    const r = await transcribeWithTranscribeCpp(modelFile, pcm, language);
+    text = r.text;
+  } else {
+    const cliPath = getWhisperCliPath();
+    if (!fs.existsSync(cliPath)) {
+      throw new Error('whisper-cli не найден в комплекте приложения');
     }
-
-    const latencyMs = Date.now() - startTime;
-    return {
-      text: (res.text || '').trim(),
-      durationSeconds: res.duration || 0,
-      latencyMs
-    };
-  } finally {
-    // Clean up temporary audio file asynchronously
-    fs.promises.unlink(tempPath).catch(() => {});
+    // whisper.cpp needs the wav on disk
+    const tempPath = path.join(
+      os.tmpdir(),
+      `speaky_local_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`
+    );
+    try {
+      await fs.promises.writeFile(tempPath, audioBuffer);
+      text = await transcribeWithWhisperCpp(cliPath, modelFile, tempPath, language);
+    } finally {
+      fs.promises.unlink(tempPath).catch(() => {});
+    }
   }
+
+  const latencyMs = Date.now() - startTime;
+  const cleaned = text
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return { text: cleaned, durationSeconds: 0, latencyMs };
 }
 
-/**
- * Terminates the worker process on app exit
- */
+/** Free the transcribe.cpp worker (called on app quit) */
 export function shutdownLocalWhisper(): void {
-  if (workerProcess && !workerProcess.killed) {
-    try {
-      workerProcess.kill();
-    } catch {}
-    workerProcess = null;
-  }
+  stopWorker();
 }

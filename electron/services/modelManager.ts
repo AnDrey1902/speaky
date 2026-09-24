@@ -1,7 +1,6 @@
-import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { app } from 'electron';
+import { app, net } from 'electron';
 import { CustomLocalModel, InstalledModelInfo, ModelEngine, ModelProgressEvent } from '../../src/types';
 import { MODEL_CATALOG, getCatalogEntry } from '../../src/modelCatalog';
 import { storage } from './storage';
@@ -9,25 +8,44 @@ import { storage } from './storage';
 export { MODEL_CATALOG, getCatalogEntry };
 
 /**
- * Speaky local model manager.
- * Catalog of downloadable speech models + download/remove/inspect logic.
- * Downloads run in a one-shot python worker process (killable).
+ * Speaky local model manager (whisper.cpp edition).
+ * Models are single-file ggml checkpoints downloaded directly from HuggingFace
+ * into userData/models/whisper.cpp/. The engine binary itself ships with the
+ * app (resources/whisper) — nothing to install, no Python.
  */
 
 export function getModelsDir(): string {
   return path.join(app.getPath('userData'), 'models');
 }
 
-function getScriptPath(): string {
-  const isDev = !app.isPackaged;
-  if (isDev) {
-    return path.join(__dirname, '..', 'resources', 'scripts', 'whisper_worker.py');
-  }
-  return path.join(process.resourcesPath, 'scripts', 'whisper_worker.py');
+function whisperModelsDir(): string {
+  return path.join(getModelsDir(), 'whisper.cpp');
 }
 
-function pythonEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, SPEAKY_MODELS_DIR: getModelsDir() };
+/** Path to the bundled whisper-cli binary shipped in resources/whisper */
+export function getWhisperCliPath(): string {
+  const isDev = !app.isPackaged;
+  if (isDev) {
+    return path.join(__dirname, '..', 'resources', 'whisper', 'win-x64', 'whisper-cli.exe');
+  }
+  return path.join(process.resourcesPath, 'whisper', 'win-x64', 'whisper-cli.exe');
+}
+
+export function isWhisperCliAvailable(): boolean {
+  try {
+    return fs.existsSync(getWhisperCliPath());
+  } catch {
+    return false;
+  }
+}
+
+/** Directory holding the bundled transcribe.cpp native libraries */
+export function getTranscribeDllDir(): string {
+  const isDev = !app.isPackaged;
+  if (isDev) {
+    return path.join(__dirname, '..', 'resources', 'transcribe', 'win-x64');
+  }
+  return path.join(process.resourcesPath, 'transcribe', 'win-x64');
 }
 
 function dirSizeMB(dir: string): number {
@@ -50,17 +68,46 @@ function dirSizeMB(dir: string): number {
 }
 
 function modelDir(entry: ModelCatalogEntry): string {
+  // Both engines store single model files under userData/models/<engine>/<id>/
   return path.join(getModelsDir(), entry.engine, entry.id);
 }
 
+function ggmlFileOf(entry: ModelCatalogEntry): string {
+  return entry.hfFile || `${entry.id}.bin`;
+}
+
+/** Engine of whichever model getInstalledModelPath() would resolve to */
+export function getInstalledModelEngine(modelId?: string): 'whisper.cpp' | 'transcribe.cpp' | undefined {
+  const entry = modelId ? getCatalogEntry(modelId) : undefined;
+  if (entry && isModelInstalled(entry)) return entry.engine as 'whisper.cpp' | 'transcribe.cpp';
+  for (const e of MODEL_CATALOG) {
+    if (isModelInstalled(e)) return e.engine as 'whisper.cpp' | 'transcribe.cpp';
+  }
+  return undefined;
+}
+
 export function isModelInstalled(entry: ModelCatalogEntry): boolean {
-  const dir = modelDir(entry);
   try {
-    if (fs.existsSync(path.join(dir, '.installed'))) return true;
-    return fs.existsSync(dir) && fs.readdirSync(dir).length > 0;
+    const file = path.join(modelDir(entry), ggmlFileOf(entry));
+    return fs.existsSync(file) && fs.statSync(file).size > 1024 * 1024;
   } catch {
     return false;
   }
+}
+
+/** Absolute path to the ggml model file if installed */
+export function getInstalledModelPath(modelId?: string): string | undefined {
+  const entry = modelId ? getCatalogEntry(modelId) : undefined;
+  if (entry && isModelInstalled(entry)) {
+    return path.join(modelDir(entry), ggmlFileOf(entry));
+  }
+  // Fall back to any installed catalog model
+  for (const e of MODEL_CATALOG) {
+    if (isModelInstalled(e)) {
+      return path.join(modelDir(e), ggmlFileOf(e));
+    }
+  }
+  return undefined;
 }
 
 export function getCatalogStatus(): InstalledModelInfo[] {
@@ -70,8 +117,8 @@ export function getCatalogStatus(): InstalledModelInfo[] {
     return {
       ...entry,
       installed,
-      path: installed ? dir : undefined,
-      sizeOnDiskMB: installed ? dirSizeMB(dir) : undefined
+      path: installed ? path.join(dir, ggmlFileOf(entry)) : undefined,
+      sizeOnDiskMB: installed ? Math.round(fs.statSync(path.join(dir, ggmlFileOf(entry))).size / 1048576) : undefined
     };
   });
 
@@ -93,7 +140,7 @@ export function getCatalogStatus(): InstalledModelInfo[] {
   return [...catalog, ...custom];
 }
 
-/* ── Custom models (user-picked folders) ──────────────────────────── */
+/* ── Custom models (user-picked ggml files/folders) ──────────────── */
 
 function listFilesShallow(dir: string): string[] {
   try {
@@ -107,18 +154,9 @@ function listFilesShallow(dir: string): string[] {
 export function detectEngineFromFolder(dir: string): ModelEngine | undefined {
   const files = listFilesShallow(dir);
   if (files.length === 0) return undefined;
-  if (files.includes('tokens.txt') || (files.includes('encoder.onnx') && files.includes('joiner.onnx'))) {
-    return 'sherpa-onnx';
-  }
-  if (files.some((f) => f.startsWith('ggml-') && f.endsWith('.bin'))) {
-    return 'whisper-cpp';
-  }
-  if (files.includes('model.bin') && files.includes('config.json')) {
-    return 'faster-whisper';
-  }
-  if (files.some((f) => f.endsWith('.onnx'))) {
-    return 'onnx-asr';
-  }
+  // Single-file model: ggml (whisper.cpp) or gguf (transcribe.cpp)
+  if (files.some((f) => f.endsWith('.gguf'))) return 'transcribe.cpp';
+  if (files.some((f) => f.endsWith('.bin'))) return 'whisper.cpp';
   return undefined;
 }
 
@@ -127,23 +165,33 @@ export function validateModelFolder(dir: string): { ok: boolean; error?: string;
   try {
     stat = fs.statSync(dir);
   } catch {
-    return { ok: false, error: 'Папка не найдена' };
+    return { ok: false, error: 'Путь не найден' };
+  }
+  // A single model file (gguf/bin) is accepted as-is
+  if (stat.isFile()) {
+    const lower = dir.toLowerCase();
+    if (lower.endsWith('.gguf')) return { ok: true, engine: 'transcribe.cpp' };
+    if (lower.endsWith('.bin')) return { ok: true, engine: 'whisper.cpp' };
+    return { ok: false, error: 'Нужен файл *.gguf (transcribe.cpp) или *.bin (whisper.cpp)' };
   }
   if (!stat.isDirectory()) return { ok: false, error: 'Выбранный путь — не папка' };
-  if (listFilesShallow(dir).length === 0) return { ok: false, error: 'Папка пуста' };
-  const engine = detectEngineFromFolder(dir);
-  if (!engine) {
+
+  const files = listFilesShallow(dir);
+  const hasGguf = files.some((f) => f.endsWith('.gguf'));
+  const hasGgml = files.some((f) => f.endsWith('.bin'));
+  if (!hasGguf && !hasGgml) {
     return {
       ok: false,
-      error: 'Не удалось определить движок. Нужны файлы faster-whisper (model.bin+config.json), whisper.cpp (ggml-*.bin), sherpa-onnx (tokens.txt) или onnx-asr (*.onnx)'
+      error: 'Не удалось определить модель. Нужен файл *.gguf (transcribe.cpp) или *.bin (whisper.cpp)'
     };
   }
-  return { ok: true, engine };
+  return { ok: true, engine: hasGguf ? 'transcribe.cpp' : 'whisper.cpp' };
 }
 
 export function registerCustomModel(model: CustomLocalModel): { ok: boolean; error?: string } {
   const check = validateModelFolder(model.path);
   if (!check.ok) return { ok: false, error: check.error };
+  const detectedEngine = check.engine;
 
   const list = [...(storage.getSettings().customLocalModels || [])];
   if (list.some((m) => m.path === model.path)) {
@@ -154,8 +202,8 @@ export function registerCustomModel(model: CustomLocalModel): { ok: boolean; err
     id: model.id,
     name: model.name || path.basename(model.path),
     path: model.path,
-    engine: model.engine || check.engine!,
-    engineModelId: model.engineModelId || undefined
+    engine: detectedEngine || detectEngineFromFolder(model.path) || 'whisper.cpp',
+    engineModelId: undefined
   });
   storage.updateSettings({ customLocalModels: list });
   return { ok: true };
@@ -171,39 +219,55 @@ export function findCustomModel(modelId: string): CustomLocalModel | undefined {
   return (storage.getSettings().customLocalModels || []).find((m) => m.id === modelId);
 }
 
-/** Spawn python one-shot: killable download with progress events */
+/** Find the model file (ggml .bin or gguf .gguf) inside a custom model folder */
+export function resolveCustomModelFile(custom: CustomLocalModel): string | undefined {
+  try {
+    const stat = fs.statSync(custom.path);
+    const lower = custom.path.toLowerCase();
+    if (stat.isFile() && (lower.endsWith('.bin') || lower.endsWith('.gguf'))) return custom.path;
+    const found = fs.readdirSync(custom.path).find((f) => {
+      const fl = f.toLowerCase();
+      return fl.endsWith('.gguf') || fl.endsWith('.bin');
+    });
+    return found ? path.join(custom.path, found) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/* ── Download (Node-side, killable, no Python) ────────────────────── */
+
+let activeDownload: { cancel: () => void } | null = null;
+
 export function downloadModel(
   modelId: string,
   onProgress: (ev: ModelProgressEvent) => void
 ): { promise: Promise<void>; cancel: () => void } {
   const entry = getCatalogEntry(modelId);
-  if (!entry) {
+  if (!entry || !entry.huggingfaceId) {
     return { promise: Promise.reject(new Error(`Unknown model: ${modelId}`)), cancel: () => {} };
   }
 
-  const req = JSON.stringify({
-    action: 'download',
-    modelId: entry.id,
-    engine: entry.engine,
-    huggingfaceId: entry.huggingfaceId,
-    engineModelId: entry.engineModelId,
-    modelFile: entry.modelFile
-  });
+  const dest = path.join(modelDir(entry), ggmlFileOf(entry));
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const partFile = dest + '.part';
 
-  const proc = spawn('python', [getScriptPath(), '--download', req], {
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: pythonEnv()
-  });
-
+  let request: Electron.ClientRequest | null = null;
   let settled = false;
-  let stderrBuf = '';
+  let cancelled = false;
 
   const promise = new Promise<void>((resolve, reject) => {
     const finish = (err?: Error) => {
       if (settled) return;
       settled = true;
-      if (err) {
+      activeDownload = null;
+      try {
+        if (fs.existsSync(partFile)) fs.unlinkSync(partFile);
+      } catch {}
+      if (cancelled) {
+        onProgress({ modelId, state: 'error', error: 'Скачивание отменено' });
+        reject(new Error('Скачивание отменено'));
+      } else if (err) {
         onProgress({ modelId, state: 'error', error: err.message });
         reject(err);
       } else {
@@ -212,46 +276,80 @@ export function downloadModel(
       }
     };
 
-    proc.stdout?.on('data', (chunk) => {
-      for (const line of chunk.toString().split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const data = JSON.parse(trimmed);
-          if (data.status === 'progress') {
+    try {
+      const url = `https://huggingface.co/${entry.huggingfaceId}/resolve/main/${ggmlFileOf(entry)}`;
+      request = net.request({ url, redirect: 'follow' });
+      request.setHeader('User-Agent', 'Speaky/1.0');
+
+      let received = 0;
+      const total = entry.sizeMB * 1048576;
+      let lastEmit = 0;
+      const fileStream = fs.createWriteStream(partFile);
+
+      request.on('response', (response) => {
+        const status = response.statusCode || 0;
+        if (status < 200 || status >= 300) {
+          fileStream.close();
+          finish(new Error(`HuggingFace вернул HTTP ${status}`));
+          return;
+        }
+        const lenHeader = parseInt(response.headers['content-length'] as string, 10);
+        const totalKnown = Number.isFinite(lenHeader) && lenHeader > 0 ? lenHeader : total;
+
+        response.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          fileStream.write(chunk);
+          const now = Date.now();
+          if (now - lastEmit > 250 || received >= totalKnown) {
+            lastEmit = now;
             onProgress({
               modelId,
               state: 'downloading',
-              percent: data.percent,
-              receivedMB: data.receivedMB
+              percent: Math.min(99.5, Math.round((received / totalKnown) * 1000) / 10),
+              receivedMB: Math.round(received / 1048576 * 10) / 10
             });
-          } else if (data.status === 'ok') {
-            finish();
-          } else if (data.status === 'error') {
-            finish(new Error(data.message || 'Ошибка скачивания'));
           }
-        } catch {
-          /* non-JSON line: ignore */
-        }
-      }
-    });
+        });
 
-    proc.stderr?.on('data', (d) => {
-      stderrBuf += d.toString();
-    });
+        response.on('end', () => {
+          fileStream.end(() => {
+            if (cancelled) return finish();
+            try {
+              fs.renameSync(partFile, dest);
+              finish();
+            } catch (err: any) {
+              finish(err);
+            }
+          });
+        });
 
-    proc.on('error', (err) => finish(err));
-    proc.on('exit', (code) => {
-      if (code !== 0) {
-        const hint = stderrBuf.split('\n').filter(Boolean).slice(-3).join(' | ');
-        finish(new Error(`Скачивание прервано (код ${code})${hint ? ': ' + hint : ''}`));
-      } else if (!settled) {
-        finish();
-      }
-    });
+        response.on('error', (err: any) => {
+          fileStream.close();
+          finish(err);
+        });
+      });
+
+      request.on('error', (err: any) => {
+        fileStream.close();
+        finish(err);
+      });
+
+      request.end();
+    } catch (err: any) {
+      finish(err);
+    }
   });
 
-  return { promise, cancel: () => { try { proc.kill(); } catch {} } };
+  activeDownload = {
+    cancel: () => {
+      cancelled = true;
+      try {
+        request?.abort();
+      } catch {}
+    }
+  };
+
+  return { promise, cancel: () => activeDownload?.cancel() };
 }
 
 export function removeModel(modelId: string): void {
@@ -269,99 +367,4 @@ export function removeModel(modelId: string): void {
     throw new Error('Refusing to delete outside models dir');
   }
   fs.rmSync(dir, { recursive: true, force: true });
-}
-
-/**
- * One-click install of a python engine dependency (pip).
- * Runs the worker one-shot with `--install-engine`; emits indeterminate progress.
- */
-export function installEngine(
-  engine: ModelEngine,
-  onProgress: (ev: ModelProgressEvent) => void
-): { promise: Promise<void>; cancel: () => void } {
-  const req = JSON.stringify({ action: 'install-engine', engine });
-  const proc = spawn('python', [getScriptPath(), '--install-engine', req], {
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: pythonEnv()
-  });
-
-  let settled = false;
-  let stderrBuf = '';
-
-  const promise = new Promise<void>((resolve, reject) => {
-    const finish = (err?: Error) => {
-      if (settled) return;
-      settled = true;
-      if (err) {
-        onProgress({ modelId: `engine:${engine}`, state: 'error', error: err.message });
-        reject(err);
-      } else {
-        onProgress({ modelId: `engine:${engine}`, state: 'done', percent: 100 });
-        resolve();
-      }
-    };
-
-    proc.stdout?.on('data', (chunk) => {
-      for (const line of chunk.toString().split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const data = JSON.parse(trimmed);
-          if (data.status === 'progress') {
-            onProgress({ modelId: `engine:${engine}`, state: 'downloading', percent: data.percent });
-          } else if (data.status === 'ok') {
-            finish();
-          } else if (data.status === 'error') {
-            finish(new Error(data.message || `Ошибка установки движка ${engine}`));
-            try { proc.kill(); } catch {}
-          }
-        } catch {}
-      }
-    });
-
-    proc.stderr?.on('data', (d) => { stderrBuf += d.toString(); });
-    proc.on('error', (err) => finish(err));
-    proc.on('exit', (code) => {
-      if (!settled) {
-        finish(new Error(`Установка прервана (код ${code})${stderrBuf ? ': ' + stderrBuf.split('\n').filter(Boolean).slice(-2).join(' | ') : ''}`));
-      }
-    });
-  });
-
-  return { promise, cancel: () => { try { proc.kill(); } catch {} } };
-}
-
-/** Check whether a python engine dependency is importable */
-export function checkEngine(engine: ModelEngine): Promise<{ available: boolean; error?: string; hint?: string }> {
-  return new Promise((resolve) => {
-    const req = JSON.stringify({ action: 'check', engine });
-    const proc = spawn('python', [getScriptPath(), '--check', req], {
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: pythonEnv()
-    });
-
-    let done = false;
-    const settle = (res: { available: boolean; error?: string; hint?: string }) => {
-      if (done) return;
-      done = true;
-      resolve(res);
-    };
-
-    proc.stdout?.on('data', (chunk) => {
-      for (const line of chunk.toString().split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const data = JSON.parse(trimmed);
-          if (data.status === 'ok') {
-            settle({ available: Boolean(data.available), error: data.error, hint: data.hint });
-          }
-        } catch {}
-      }
-    });
-    proc.on('error', (err) => settle({ available: false, error: err.message }));
-    proc.on('exit', () => settle({ available: false, error: 'Python не найден' }));
-  });
 }

@@ -29,9 +29,10 @@ interface ModelsTabProps {
 }
 
 type ProgressMap = Record<string, { state: string; percent?: number }>;
-type EngineMap = Record<ModelEngine, { available?: boolean; hint?: string; checking?: boolean }>;
 
 const engineLabel: Record<ModelEngine, string> = {
+  'whisper.cpp': 'whisper.cpp',
+  'transcribe.cpp': 'transcribe.cpp',
   'faster-whisper': 'faster-whisper',
   'whisper-cpp': 'whisper.cpp',
   'gigaam': 'GigaAM',
@@ -43,10 +44,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
   const t = getTranslations(settings.uiLanguage);
   const [models, setModels] = useState<InstalledModelInfo[]>([]);
   const [progress, setProgress] = useState<ProgressMap>({});
-  const [engines, setEngines] = useState<EngineMap>({} as EngineMap);
   const [showKey, setShowKey] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
-  const checkedRef = useRef<Set<ModelEngine>>(new Set());
 
   const refreshCatalog = useCallback(async () => {
     const catalog = await window.speakyAPI?.getModelCatalog?.();
@@ -74,22 +73,6 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
     });
     return () => unsub?.();
   }, [refreshCatalog]);
-
-  // Check python engines for the models present in the catalog (once each)
-  useEffect(() => {
-    const enginesToCheck = [...new Set(models.map((m) => m.engine))];
-    for (const engine of enginesToCheck) {
-      if (checkedRef.current.has(engine)) continue;
-      checkedRef.current.add(engine);
-      setEngines((prev) => ({ ...prev, [engine]: { checking: true } }));
-      window.speakyAPI?.checkEngine?.(engine).then((res) => {
-        setEngines((prev) => ({
-          ...prev,
-          [engine]: { available: res?.available, hint: res?.hint, checking: false }
-        }));
-      });
-    }
-  }, [models]);
 
   const handleDownload = async (modelId: string) => {
     if (!window.speakyAPI?.downloadModel) return;
@@ -119,29 +102,6 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
     onChange({ provider: 'local', localModelId: modelId });
   };
 
-  /* ── One-click engine install ── */
-  const handleInstallEngine = async (engine: ModelEngine) => {
-    setModelError(null);
-    setEngines((prev) => ({ ...prev, [engine]: { ...prev[engine], checking: true } }));
-    const res = await window.speakyAPI?.installEngine?.(engine);
-    if (res && !res.ok) {
-      setModelError(res.error || 'Ошибка установки движка');
-    }
-    // Re-check availability regardless of outcome
-    checkedRef.current.add(engine);
-    setEngines((prev) => ({ ...prev, [engine]: { checking: true } }));
-    const check = await window.speakyAPI?.checkEngine?.(engine);
-    setEngines((prev) => ({
-      ...prev,
-      [engine]: { available: check?.available, hint: check?.hint, checking: false }
-    }));
-    if (check?.available) refreshCatalog();
-  };
-
-  const engineInstalling = (engine: ModelEngine) => {
-    return progress[`engine:${engine}`]?.state === 'downloading';
-  };
-
   /* ── Custom folder model ── */
   const [draftFolder, setDraftFolder] = useState<{
     path: string;
@@ -149,21 +109,17 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
     detectedEngine?: ModelEngine;
   } | null>(null);
   const [draftName, setDraftName] = useState('');
-  const [draftEngine, setDraftEngine] = useState<ModelEngine>('faster-whisper');
-  const [draftKey, setDraftKey] = useState('');
 
   const handlePickFolder = async () => {
     setModelError(null);
     const res = await window.speakyAPI?.pickModelFolder?.();
     if (!res) return;
     if (!res.detectedEngine) {
-      setModelError('Не удалось определить движок модели по содержимому папки');
+      setModelError('Не удалось определить модель: нужна папка с ggml-файлом (*.bin)');
       return;
     }
     setDraftFolder(res);
     setDraftName(res.suggestedName);
-    setDraftEngine(res.detectedEngine);
-    setDraftKey('');
   };
 
   const handleRegisterFolder = async () => {
@@ -173,8 +129,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
       id,
       name: draftName.trim() || draftFolder.suggestedName,
       path: draftFolder.path,
-      engine: draftEngine,
-      engineModelId: draftEngine === 'onnx-asr' ? draftKey.trim() || undefined : undefined
+      engine: 'whisper.cpp'
     });
     if (res && !res.ok) {
       setModelError(res.error || 'Ошибка подключения папки');
@@ -256,24 +211,10 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
                 placeholder="Название"
                 className="px-3 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 min-w-40"
               />
-              <select
-                value={draftEngine}
-                onChange={(e) => setDraftEngine(e.target.value as ModelEngine)}
-                className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
-              >
-                {(Object.keys(engineLabel) as ModelEngine[]).map((eng) => (
-                  <option key={eng} value={eng}>{engineLabel[eng]}</option>
-                ))}
-              </select>
+              <span className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300">
+                whisper.cpp (ggml .bin)
+              </span>
             </div>
-            {draftEngine === 'onnx-asr' && (
-              <input
-                value={draftKey}
-                onChange={(e) => setDraftKey(e.target.value)}
-                placeholder="Ключ модели (load_model), напр. gigaam-v3-ctc"
-                className="w-full px-3 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
-              />
-            )}
             <div className="flex items-center gap-2">
               <Button variant="primary" onClick={handleRegisterFolder}>Подключить</Button>
               <Button variant="ghost" onClick={() => setDraftFolder(null)}>Отмена</Button>
@@ -286,8 +227,6 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
         {localModels.map((m) => {
           const isDownloading = progress[m.id]?.state === 'downloading';
           const isActiveLocal = settings.provider === 'local' && settings.localModelId === m.id;
-          const engine = engines[m.engine];
-          const engineMissing = engine && engine.available === false;
 
           return (
             <div
@@ -324,27 +263,6 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
                     <p className={`text-[11px] mt-1 leading-relaxed ${m.isCustom ? 'text-zinc-600 font-mono break-all line-clamp-2' : 'text-zinc-500 truncate'}`}>
                       {m.description}
                     </p>
-                    {engineMissing && (
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <p className="text-[10px] text-amber-400 font-mono">
-                          {t.engineMissing}: {engine?.hint || `pip install ${m.requires}`}
-                        </p>
-                        <button
-                          onClick={() => handleInstallEngine(m.engine)}
-                          disabled={engineInstalling(m.engine)}
-                          className="px-2 py-0.5 rounded-md text-[10px] font-semibold text-amber-200 bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 disabled:opacity-50 transition-all cursor-pointer flex items-center gap-1"
-                        >
-                          {engineInstalling(m.engine) ? (
-                            <>
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                              {t.downloadingModel}…
-                            </>
-                          ) : (
-                            t.installEngine
-                          )}
-                        </button>
-                      </div>
-                    )}
                     {m.installed && m.sizeOnDiskMB !== undefined && (
                       <p className="text-[10px] text-zinc-600 mt-1 font-mono">
                         {m.sizeOnDiskMB} МБ на диске

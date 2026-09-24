@@ -1,193 +1,67 @@
 import { ModelCatalogEntry } from './types';
 
 /**
- * Shared catalog of speech models (renderer + main process).
- * Renderer shows it as a fallback when running outside Electron.
+ * Shared catalog of local speech models (renderer + main process).
+ * Two engines, both bundled with the app, no Python:
+ *  - whisper.cpp  → ggml/*.bin via bundled whisper-cli.exe (one process per dictation)
+ *  - transcribe.cpp → GGUF via bundled transcribe.dll (worker thread, model stays in RAM)
+ * All models are single files downloaded straight from HuggingFace.
  */
 export const MODEL_CATALOG: ModelCatalogEntry[] = [
   {
-    id: 'whisper-large-v3-turbo',
-    name: 'Whisper Large v3 Turbo',
-    engine: 'faster-whisper',
-    huggingfaceId: 'deepdml/faster-whisper-large-v3-turbo-ct2',
-    languages: ['multi'],
-    sizeMB: 1624,
-    description: 'Максимальная точность и скорость. Рекомендуемая модель.',
-    requires: 'faster-whisper'
+    id: 'gigaam-v3-q5',
+    name: 'GigaAM v3 RNNT (Q5_K_M)',
+    engine: 'transcribe.cpp',
+    huggingfaceId: 'handy-computer/gigaam-v3-e2e-rnnt-gguf',
+    hfFile: 'gigaam-v3-e2e-rnnt-Q5_K_M.gguf',
+    languages: ['ru'],
+    sizeMB: 207,
+    description: 'Рекомендуемая для русского: топ-точность с пунктуацией, очень быстрая на GPU (Vulkan) и на новых CPU.',
+    requires: 'transcribe.cpp'
   },
   {
-    id: 'whisper-large-v3',
-    name: 'Whisper Large v3',
-    engine: 'faster-whisper',
-    huggingfaceId: 'Systran/faster-whisper-large-v3',
+    id: 'parakeet-v3-q4',
+    name: 'Parakeet TDT v3 (Q4_K_M)',
+    engine: 'transcribe.cpp',
+    huggingfaceId: 'handy-computer/parakeet-tdt-0.6b-v3-gguf',
+    hfFile: 'parakeet-tdt-0.6b-v3-Q4_K_M.gguf',
     languages: ['multi'],
-    sizeMB: 3095,
-    description: 'Полная версия Large v3 — лучшая точность на сложном аудио.',
-    requires: 'faster-whisper'
+    sizeMB: 463,
+    description: 'Мультиязычная (25 европейских языков, вкл. русский и украинский), с пунктуацией и автопереводом языка.',
+    requires: 'transcribe.cpp'
   },
   {
-    id: 'whisper-medium',
-    name: 'Whisper Medium',
-    engine: 'faster-whisper',
-    huggingfaceId: 'Systran/faster-whisper-medium',
+    id: 'whisper-large-v3-turbo-q4',
+    name: 'Whisper Large v3 Turbo (Q4_K_M)',
+    engine: 'transcribe.cpp',
+    huggingfaceId: 'handy-computer/whisper-large-v3-turbo-gguf',
+    hfFile: 'whisper-large-v3-turbo-Q4_K_M.gguf',
     languages: ['multi'],
-    sizeMB: 1530,
-    description: 'Хороший баланс точности и размера для средних ПК.',
-    requires: 'faster-whisper'
+    sizeMB: 511,
+    description: 'Классика Whisper в компактном GGUF: ~100 языков и режим перевода, максимум точности.',
+    requires: 'transcribe.cpp'
   },
   {
-    id: 'whisper-small',
-    name: 'Whisper Small',
-    engine: 'faster-whisper',
-    huggingfaceId: 'Systran/faster-whisper-small',
-    languages: ['multi'],
-    sizeMB: 484,
-    description: 'Лёгкая модель для слабых машин и быстрого старта.',
-    requires: 'faster-whisper'
-  },
-  {
-    id: 'whisper-base',
-    name: 'Whisper Base',
-    engine: 'faster-whisper',
-    huggingfaceId: 'Systran/faster-whisper-base',
-    languages: ['multi'],
-    sizeMB: 148,
-    description: 'Крошечная модель для тестов и очень старых ПК.',
-    requires: 'faster-whisper'
-  },
-  {
-    id: 'whisper-cpp-tiny',
-    name: 'Whisper Tiny (whisper.cpp)',
-    engine: 'whisper-cpp',
+    id: 'whisper-small-q5',
+    name: 'Whisper Small (q5_1)',
+    engine: 'whisper.cpp',
     huggingfaceId: 'ggerganov/whisper.cpp',
-    modelFile: 'ggml-tiny.bin',
+    hfFile: 'ggml-small-q5_1.bin',
     languages: ['multi'],
-    sizeMB: 78,
-    description: 'Самая лёгкая модель для быстрого офлайн-распознавания через whisper.cpp.',
+    sizeMB: 181,
+    description: 'Лёгкая многоязычная модель whisper.cpp; хороший запасной вариант для слабых машин.',
     requires: 'whisper.cpp'
   },
   {
-    id: 'whisper-cpp-base',
-    name: 'Whisper Base (whisper.cpp)',
-    engine: 'whisper-cpp',
+    id: 'whisper-base-q5',
+    name: 'Whisper Base (q5_1)',
+    engine: 'whisper.cpp',
     huggingfaceId: 'ggerganov/whisper.cpp',
-    modelFile: 'ggml-base.bin',
+    hfFile: 'ggml-base-q5_1.bin',
     languages: ['multi'],
-    sizeMB: 148,
-    description: 'Компактная модель для слабых машин и быстрого старта через whisper.cpp.',
+    sizeMB: 57,
+    description: 'Минимальный размер для старых ПК и быстрой проверки локального режима.',
     requires: 'whisper.cpp'
-  },
-  {
-    id: 'whisper-cpp-small',
-    name: 'Whisper Small (whisper.cpp)',
-    engine: 'whisper-cpp',
-    huggingfaceId: 'ggerganov/whisper.cpp',
-    modelFile: 'ggml-small.bin',
-    languages: ['multi'],
-    sizeMB: 488,
-    description: 'Хороший баланс скорости и качества для локального режима whisper.cpp.',
-    requires: 'whisper.cpp'
-  },
-  {
-    id: 'whisper-cpp-medium',
-    name: 'Whisper Medium (whisper.cpp)',
-    engine: 'whisper-cpp',
-    huggingfaceId: 'ggerganov/whisper.cpp',
-    modelFile: 'ggml-medium.bin',
-    languages: ['multi'],
-    sizeMB: 1530,
-    description: 'Более точная модель для мощных машин с whisper.cpp.',
-    requires: 'whisper.cpp'
-  },
-  {
-    id: 'parakeet-tdt-0.6b-v3',
-    name: 'Parakeet TDT 0.6B v3',
-    engine: 'onnx-asr',
-    engineModelId: 'nemo-parakeet-tdt-0.6b-v3',
-    huggingfaceId: 'nvidia/parakeet-tdt-0.6b-v3',
-    languages: ['multi'],
-    sizeMB: 700,
-    description: 'NVIDIA Parakeet v3 — мультиязычная модель (en/de/es/fr), инференс через onnx-asr.',
-    requires: 'onnx-asr'
-  },
-  {
-    id: 'gigaam-v3-ctc',
-    name: 'GigaAM v3 CTC',
-    engine: 'onnx-asr',
-    huggingfaceId: 'istupakov/gigaam-v3-onnx',
-    languages: ['ru'],
-    sizeMB: 900,
-    description: 'GigaAM v3 (рус.), CTC-декодер — самая быстрая вариация (onnx-asr).',
-    requires: 'onnx-asr'
-  },
-  {
-    id: 'gigaam-v3-rnnt',
-    name: 'GigaAM v3 RNN-T',
-    engine: 'onnx-asr',
-    huggingfaceId: 'istupakov/gigaam-v3-onnx',
-    languages: ['ru'],
-    sizeMB: 900,
-    description: 'GigaAM v3 (рус.), RNN-T декодер — максимальная точность (onnx-asr).',
-    requires: 'onnx-asr'
-  },
-  {
-    id: 'gigaam-v3-e2e-ctc',
-    name: 'GigaAM v3 E2E CTC',
-    engine: 'onnx-asr',
-    huggingfaceId: 'istupakov/gigaam-v3-onnx',
-    languages: ['ru'],
-    sizeMB: 900,
-    description: 'GigaAM v3 E2E (рус.) — сразу с пунктуацией и нормализацией текста.',
-    requires: 'onnx-asr'
-  },
-  {
-    id: 'gigaam-v3-e2e-rnnt',
-    name: 'GigaAM v3 E2E RNN-T',
-    engine: 'onnx-asr',
-    huggingfaceId: 'istupakov/gigaam-v3-onnx',
-    languages: ['ru'],
-    sizeMB: 900,
-    description: 'GigaAM v3 E2E (рус.) — RNN-T + пунктуация (onnx-asr).',
-    requires: 'onnx-asr'
-  },
-  {
-    id: 'gigaam-multilingual-ctc',
-    name: 'GigaAM Multilingual CTC',
-    engine: 'onnx-asr',
-    huggingfaceId: 'istupakov/gigaam-multilingual-ctc-onnx',
-    languages: ['multi'],
-    sizeMB: 1059,
-    description: 'GigaAM Multilingual (ru/en/kk/ky/uz), CTC — компактная мультиязычная модель (onnx-asr).',
-    requires: 'onnx-asr'
-  },
-  {
-    id: 'gigaam-multilingual-large-ctc',
-    name: 'GigaAM Multilingual Large CTC',
-    engine: 'onnx-asr',
-    huggingfaceId: 'istupakov/gigaam-multilingual-large-ctc-onnx',
-    languages: ['multi'],
-    sizeMB: 2800,
-    description: 'GigaAM Multilingual Large (ru/en/kk/ky/uz) — максимальная точность среди GigaAM (onnx-asr).',
-    requires: 'onnx-asr'
-  },
-  {
-    id: 'parakeet-tdt-0.6b-v2',
-    name: 'Parakeet TDT 0.6B v2',
-    engine: 'sherpa-onnx',
-    huggingfaceId: 'csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2',
-    languages: ['en'],
-    sizeMB: 1100,
-    description: 'NVIDIA NeMo Parakeet — сверхбыстрый английский ASR (ONNX, sherpa-onnx).',
-    requires: 'sherpa-onnx'
-  },
-  {
-    id: 'gigaam-v2',
-    name: 'GigaAM v2',
-    engine: 'gigaam',
-    languages: ['ru'],
-    sizeMB: 400,
-    description: 'Русская ASR-модель от AI-Research (Sber), полный офлайн.',
-    requires: 'gigaam'
   }
 ];
 

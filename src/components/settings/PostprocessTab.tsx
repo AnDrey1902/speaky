@@ -139,7 +139,7 @@ export const PostprocessTab: React.FC<PostprocessTabProps> = ({
                 onClick={() => onChange({ llmProvider: opt.id })}
                 className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
                   isSelected
-                    ? 'bg-zinc-900 border-indigo-500/70 ring-1 ring-indigo-500/40'
+                    ? 'bg-zinc-900 border-emerald-500/70 ring-1 ring-emerald-500/40'
                     : 'bg-zinc-900/70 border-zinc-800 hover:border-zinc-700'
                 }`}
               >
@@ -148,7 +148,7 @@ export const PostprocessTab: React.FC<PostprocessTabProps> = ({
                     <div
                       className={`w-8 h-8 rounded-lg flex items-center justify-center border ${
                         isSelected
-                          ? 'bg-indigo-500 text-white border-indigo-500'
+                          ? 'bg-emerald-500 text-white border-emerald-500'
                           : 'bg-zinc-800 text-zinc-400 border-zinc-700/60'
                       }`}
                     >
@@ -280,7 +280,7 @@ export const PostprocessTab: React.FC<PostprocessTabProps> = ({
                 key={p.id}
                 className={`p-4 rounded-xl border transition-all ${
                   isActive
-                    ? 'bg-zinc-900 border-indigo-500/70 ring-1 ring-indigo-500/40'
+                    ? 'bg-zinc-900 border-emerald-500/70 ring-1 ring-emerald-500/40'
                     : 'bg-zinc-900/70 border-zinc-800 hover:border-zinc-700'
                 }`}
               >
@@ -292,7 +292,7 @@ export const PostprocessTab: React.FC<PostprocessTabProps> = ({
                       className="!w-52 font-semibold"
                     />
                     {isActive && (
-                      <Badge tone="accent">
+                      <Badge tone="success">
                         <CheckCircle2 className="w-3 h-3" /> {t.activePrompt}
                       </Badge>
                     )}
@@ -300,7 +300,7 @@ export const PostprocessTab: React.FC<PostprocessTabProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {!isActive && (
-                      <Button variant="primary" onClick={() => onChange({ activePromptId: p.id })}>
+                      <Button variant="success" onClick={() => onChange({ activePromptId: p.id })}>
                         {t.activatePrompt}
                       </Button>
                     )}

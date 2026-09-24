@@ -19,14 +19,12 @@ import { storage } from './services/storage';
 import { detectActiveContext } from './services/contextDetector';
 import { injectTextUnicode, simulateCopy, rememberForegroundWindow } from './services/win32';
 import { transcribeAudio } from './services/sttService';
-import { checkLocalWhisperAvailable, shutdownLocalWhisper } from './services/localWhisper';
-import { cleanTextRules, refineTextWithLLM } from './services/llmProcessor';
+import { checkLocalWhisperAvailable } from './services/localWhisper';
+import { cleanTextRules, refineTextWithLLM, translateTextWithLLM } from './services/llmProcessor';
 import {
   getCatalogStatus,
   downloadModel,
   removeModel,
-  checkEngine,
-  installEngine,
   validateModelFolder,
   registerCustomModel,
   unregisterCustomModel
@@ -570,6 +568,67 @@ function registerHotkeys() {
 /* ── Translate-mode hotkey (separate shortcut) ────────────────────── */
 let lastTranslateTimestamp = 0;
 
+/** Translate a captured text selection in place (no dictation round-trip). */
+async function translateSelectionFromHotkey(selectedText: string, reason: string): Promise<void> {
+  const traceId = `sel-translate-${Date.now()}`;
+  const startedAt = Date.now();
+  const context = lastActiveContext || detectActiveContext();
+  const settings = storage.getSettings();
+
+  try {
+    const translated = await translateTextWithLLM(selectedText, settings.translateTargetLang || 'en', context);
+    await injectTextUnicode(translated);
+
+    storage.addHistoryItem({
+      id: traceId,
+      timestamp: startedAt,
+      rawText: selectedText,
+      processedText: translated,
+      durationMs: 0,
+      latencyMs: Date.now() - startedAt,
+      appContext: context.processName,
+      category: context.category,
+      mode: 'translate'
+    });
+    console.log(`[Translate] ${reason}: translated ${selectedText.length} chars in ${Date.now() - startedAt}ms`);
+  } catch (err: any) {
+    console.error('[Translate] Selection translation failed:', err);
+    storage.addHistoryItem({
+      id: traceId,
+      timestamp: startedAt,
+      rawText: selectedText,
+      processedText: `[Ошибка перевода] ${err?.message || 'unknown'}`,
+      durationMs: 0,
+      latencyMs: Date.now() - startedAt,
+      appContext: context.processName,
+      category: context.category,
+      mode: 'translate'
+    });
+  }
+}
+
+function showTranslateHud(): void {
+  if (!hudWindow || hudWindow.isDestroyed()) {
+    createHudWindow();
+  }
+  if (hudWindow && !hudWindow.isDestroyed()) {
+    const s = storage.getSettings();
+    const bounds = screen.getPrimaryDisplay().bounds;
+    let posX = s.hudPosition?.x;
+    let posY = s.hudPosition?.y;
+    if (posX === undefined || posY === undefined) {
+      posX = Math.round(bounds.x + (bounds.width - 520) / 2);
+      posY = Math.round(bounds.y + bounds.height - 140 - 16);
+    }
+    hudWindow.setPosition(posX, posY);
+    hudWindow.showInactive();
+    hudWindow.setAlwaysOnTop(true, 'screen-saver');
+    hudWindow.moveTop();
+    hudWindow.webContents.send('context:changed', lastActiveContext);
+    hudWindow.webContents.send('hotkey:trigger', 'translate');
+  }
+}
+
 function registerTranslateHotkey() {
   try {
     globalShortcut.unregister('Control+Shift+`');
@@ -598,26 +657,23 @@ function registerTranslateHotkey() {
         rememberForegroundWindow();
         lastActiveContext = detectActiveContext();
 
-        if (!hudWindow || hudWindow.isDestroyed()) {
-          createHudWindow();
-        }
-        if (hudWindow && !hudWindow.isDestroyed()) {
-          const s = storage.getSettings();
-          const bounds = screen.getPrimaryDisplay().bounds;
-          let posX = s.hudPosition?.x;
-          let posY = s.hudPosition?.y;
-          if (posX === undefined || posY === undefined) {
-            posX = Math.round(bounds.x + (bounds.width - 520) / 2);
-            posY = Math.round(bounds.y + bounds.height - 140 - 16);
+        // If some text is selected in the foreground app — translate it in place
+        // instead of starting a translate-dictation session.
+        (async () => {
+          try {
+            const selected = await captureActiveSelection();
+            if (selected && selected.trim().length > 0) {
+              if (hudWindow && !hudWindow.isDestroyed() && hudWindow.isVisible()) {
+                hudWindow.hide();
+              }
+              await translateSelectionFromHotkey(selected, 'Selection translated');
+              return;
+            }
+          } catch (err) {
+            console.warn('[Translate] Selection capture failed, falling back to dictation:', err);
           }
-          hudWindow.setPosition(posX, posY);
-          hudWindow.showInactive();
-          hudWindow.setAlwaysOnTop(true, 'screen-saver');
-          hudWindow.moveTop();
-          hudWindow.webContents.send('context:changed', lastActiveContext);
-          console.log(`[Hotkeys] Translate Triggered: ${key}`);
-          hudWindow.webContents.send('hotkey:trigger', 'translate');
-        }
+          showTranslateHud();
+        })();
       });
 
       if (success) {
@@ -742,24 +798,7 @@ function setupIpcHandlers() {
       return { ok: false, error: err?.message || 'Ошибка удаления' };
     }
   });
-  ipcMain.handle('models:check-engine', (_event, engine: ModelEngine) => checkEngine(engine));
-
-  ipcMain.handle('models:install-engine', async (_event, engine: ModelEngine) => {
-    const sendProgress = (ev: ModelProgressEvent) => {
-      for (const win of [hudWindow, settingsWindow]) {
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('model:progress', ev);
-        }
-      }
-    };
-    try {
-      const { promise } = installEngine(engine, sendProgress);
-      await promise;
-      return { ok: true };
-    } catch (err: any) {
-      return { ok: false, error: err?.message || 'Ошибка установки движка' };
-    }
-  });
+  ipcMain.handle('models:check-engine', () => ({ available: true }));
 
   ipcMain.handle('models:pick-folder', async () => {
     const win = settingsWindow || BrowserWindow.getFocusedWindow() || undefined;
@@ -953,7 +992,6 @@ if (gotTheLock) {
   });
 
   app.on('will-quit', () => {
-    shutdownLocalWhisper();
     globalShortcut.unregisterAll();
   });
 

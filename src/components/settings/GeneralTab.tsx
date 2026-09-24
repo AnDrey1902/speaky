@@ -85,24 +85,23 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onChange }) =>
             ? t.speechLangDescEn
             : settings.language === 'auto'
             ? t.speechLangDescAuto
-            : t.speechLangDescRu
+            : t.speechLangDescMulti
         }
       >
-        <div className="flex bg-zinc-800 p-1 rounded-lg border border-zinc-700/70 shrink-0">
-          {(['ru', 'en', 'auto'] as const).map((lang) => (
-            <button
-              key={lang}
-              onClick={() => onChange({ language: lang })}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                (settings.language || 'ru') === lang
-                  ? 'bg-zinc-600 text-white shadow-sm font-semibold'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              {lang === 'auto' ? t.uiLangAuto.split(' ')[0] : lang.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        <Select
+          value={(settings.language || 'ru') as string}
+          onChange={(e) => onChange({ language: e.target.value as any })}
+        >
+          <option value="auto">🌐 {t.uiLangAuto}</option>
+          <option value="ru">🇷🇺 Русский</option>
+          <option value="uk">🇺🇦 Українська</option>
+          <option value="en">🇬🇧 English</option>
+          <option value="es">🇪🇸 Español</option>
+          <option value="de">🇩🇪 Deutsch</option>
+          <option value="fr">🇫🇷 Français</option>
+          <option value="it">🇮🇹 Italiano</option>
+          <option value="zh">🇨🇳 中文</option>
+        </Select>
       </SettingRow>
 
       {/* Hotkey */}

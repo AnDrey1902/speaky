@@ -7,7 +7,6 @@ import {
   ActiveContext,
   HudState,
   PromptTemplate,
-  ModelEngine,
   ModelProgressEvent,
   DictationMode
 } from '../src/types';
@@ -36,10 +35,6 @@ const api = {
     ipcRenderer.on('model:progress', handler);
     return () => ipcRenderer.removeListener('model:progress', handler);
   },
-  checkEngine: (engine: ModelEngine): Promise<{ available: boolean; error?: string; hint?: string }> =>
-    ipcRenderer.invoke('models:check-engine', engine),
-  installEngine: (engine: ModelEngine): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('models:install-engine', engine),
   pickModelFolder: () => ipcRenderer.invoke('models:pick-folder'),
   registerCustomModel: (model: any): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('models:register-custom', model),

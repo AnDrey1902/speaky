@@ -77,24 +77,30 @@ export interface PromptTemplate {
 
 /* ── Local speech model catalog ─────────────────────────────────────── */
 
-export type ModelEngine = 'faster-whisper' | 'whisper-cpp' | 'gigaam' | 'sherpa-onnx' | 'onnx-asr';
+/**
+ * Local speech engines. `whisper.cpp` runs the bundled whisper-cli binary
+ * (resources/whisper) and `transcribe.cpp` the bundled transcribe.dll
+ * (resources/transcribe) — no Python required. Legacy python engines are kept
+ * only for reading old custom-model registrations.
+ */
+export type ModelEngine = 'whisper.cpp' | 'transcribe.cpp' | 'faster-whisper' | 'gigaam' | 'sherpa-onnx' | 'onnx-asr';
 
 export interface ModelCatalogEntry {
   id: string;
   name: string;
   engine: ModelEngine;
-  /** e.g. 'Systran/faster-whisper-large-v3-turbo' */
+  /** e.g. 'Systran/faster-whisper-large-v3-turbo' or 'ggerganov/whisper.cpp' */
   huggingfaceId?: string;
+  /** exact file inside the HF repo (single-file ggml models) */
+  hfFile?: string;
   languages: string[];
   /** approximate download size in megabytes */
   sizeMB: number;
   description: string;
-  /** runtime engine dependency hint (pip package) */
+  /** runtime engine dependency hint (legacy python engines) */
   requires?: string;
-  /** model key inside the engine (e.g. onnx-asr load_model id) if different from `id` */
+  /** model key inside the engine if different from `id` */
   engineModelId?: string;
-  /** model filename in the engine's model repository (used by whisper.cpp) */
-  modelFile?: string;
 }
 
 export interface InstalledModelInfo extends ModelCatalogEntry {
@@ -180,11 +186,8 @@ export interface SpeakyAPI {
   downloadModel: (modelId: string) => Promise<{ ok: boolean; error?: string }>;
   removeModel: (modelId: string) => Promise<{ ok: boolean; error?: string }>;
   onModelProgress: (callback: (ev: ModelProgressEvent) => void) => () => void;
-  checkEngine: (engine: ModelEngine) => Promise<{ available: boolean; error?: string; hint?: string }>;
   pickModelFolder: () => Promise<{ path: string; suggestedName: string; detectedEngine?: ModelEngine } | null>;
   checkHotkey: (accelerator: string) => Promise<{ available: boolean; error?: string }>;
-  /** One-click install of a python engine (pip install faster-whisper / onnx-asr / ...) */
-  installEngine: (engine: ModelEngine) => Promise<{ ok: boolean; error?: string }>;
   registerCustomModel: (model: CustomLocalModel) => Promise<{ ok: boolean; error?: string }>;
   unregisterCustomModel: (modelId: string) => Promise<{ ok: boolean; error?: string }>;
 
@@ -203,6 +206,7 @@ export interface SpeakyAPI {
     mimeType?: string,
     mode?: DictationMode
   ) => Promise<any>;
+  /** Local engine availability: bundled whisper-cli binary + at least one downloaded model */
   checkLocalWhisper: () => Promise<{ available: boolean; error?: string }>;
 
   onTriggerRecording: (
