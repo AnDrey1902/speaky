@@ -75,7 +75,21 @@ function getWorker(): Promise<Worker> {
     return Promise.reject(new Error('transcribe.dll не найден в комплекте приложения'));
   }
   return new Promise((resolve, reject) => {
-    const workerPath = process.env.SPEAKY_TRANSCRIBE_WORKER || path.join(__dirname, 'transcribeWorker.js');
+    // Bundled main.js lives in dist-electron/ while the worker entry is emitted
+    // to dist-electron/services/ — try both layouts. Worker threads cannot load
+    // scripts from inside app.asar, so remap to the unpacked copy on disk.
+    const candidates = process.env.SPEAKY_TRANSCRIBE_WORKER
+      ? [process.env.SPEAKY_TRANSCRIBE_WORKER]
+      : [
+          path.join(__dirname, 'services', 'transcribeWorker.js'),
+          path.join(__dirname, 'transcribeWorker.js')
+        ];
+    const unpack = (p: string) => p.replace('app.asar', 'app.asar.unpacked');
+    const workerPath = candidates.map(unpack).find((p) => fs.existsSync(p));
+    if (!workerPath) {
+      reject(new Error(`transcribeWorker.js не найден (${candidates.join('; ')})`));
+      return;
+    }
     const w = new Worker(workerPath, {
       workerData: { dllDir }
     });
@@ -291,7 +305,7 @@ async function ensureWhisperServer(modelPath: string): Promise<boolean> {
       const serverPath = getWhisperServerPath();
       if (!fs.existsSync(serverPath)) return false;
       const threads = Math.max(2, Math.floor(os.cpus().length / 2));
-      const args = ['-m', modelPath, '--host', '127.0.0.1', '--port', String(WHISPER_SERVER_PORT), '-t', String(threads)];
+      const args = ['-m', modelPath, '--host', '127.0.0.1', '--port', String(WHISPER_SERVER_PORT), '-t', String(threads), '-l', 'auto'];
       const proc = spawn(serverPath, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'] });
       proc.on('exit', () => { if (whisperServer?.proc === proc) { whisperServer = null; } });
       // Wait up to 30s for HTTP readiness
@@ -316,12 +330,15 @@ function postWavToServer(wavPath: string, language: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const boundary = '----SpeakyBoundary' + Date.now();
     const chunks: Buffer[] = [];
+    // IMPORTANT: whisper-server's multipart parser (v1.9.x) corrupts fields that
+    // come AFTER the file part — the language field must be sent BEFORE the file,
+    // otherwise it is dropped and the server silently falls back to English.
+    if (language) {
+      chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${language}\r\n`));
+    }
     chunks.push(Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n`));
     chunks.push(fs.readFileSync(wavPath));
-    if (language && language !== 'auto') {
-      chunks.push(Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${language}\r\n`));
-    }
     chunks.push(Buffer.from(`\r\n--${boundary}--\r\n`));
     const body = Buffer.concat(chunks);
     const req = http.request({
@@ -372,7 +389,8 @@ async function transcribeWithWhisperCpp(
   const args = ['-m', modelPath, '-f', tempPath, '-nt', '-np'];
   const threads = Math.max(2, Math.floor(os.cpus().length / 2));
   args.push('-t', String(threads));
-  if (language && language !== 'auto') args.push('-l', language);
+  // Always pass -l: whisper-cli also defaults to English without it
+  args.push('-l', language || 'auto');
 
   return new Promise<string>((resolve, reject) => {
     const proc = spawn(cliPath, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });

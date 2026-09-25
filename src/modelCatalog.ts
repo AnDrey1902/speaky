@@ -16,7 +16,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     hfFile: 'gigaam-v3-e2e-rnnt-Q5_K_M.gguf',
     languages: ['ru'],
     sizeMB: 207,
-    description: 'Рекомендуемая для русского: топ-точность с пунктуацией, очень быстрая на GPU (Vulkan) и на новых CPU.',
+    description: 'Только русский: топ-точность с пунктуацией, очень быстрая (Vulkan). Украинский не поддерживается — для него выберите Parakeet. Отдельные английские слова распознаёт, но полный английский — нет.',
     requires: 'transcribe.cpp'
   },
   {
@@ -25,9 +25,9 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     engine: 'transcribe.cpp',
     huggingfaceId: 'handy-computer/parakeet-tdt-0.6b-v3-gguf',
     hfFile: 'parakeet-tdt-0.6b-v3-Q4_K_M.gguf',
-    languages: ['multi'],
+    languages: ['ru', 'uk', 'multi'],
     sizeMB: 463,
-    description: 'Мультиязычная (25 европейских языков, вкл. русский и украинский), с пунктуацией и автопереводом языка.',
+    description: 'Мультиязычная (25 европейских языков, вкл. русский и украинский), с пунктуацией. Выбор для украинского.',
     requires: 'transcribe.cpp'
   },
   {

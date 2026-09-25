@@ -12,7 +12,7 @@ if (typeof (globalThis as any).Blob === 'undefined') {
   }
 }
 
-import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, screen, nativeImage, session, clipboard, shell, dialog, systemPreferences } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, screen, nativeImage, session, clipboard, shell, dialog, systemPreferences, Notification } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { storage } from './services/storage';
@@ -449,31 +449,50 @@ let lastHotkeyTimestamp = 0;
 let currentSelectionText = '';
 
 async function captureActiveSelection(): Promise<string> {
-  try {
-    const oldText = clipboard.readText();
-    const oldImage = clipboard.readImage();
-    const hadImage = !oldImage.isEmpty();
+  const oldText = clipboard.readText();
+  const oldImage = clipboard.readImage();
+  const hadImage = !oldImage.isEmpty();
+  const writeBack = () => {
+    try {
+      if (hadImage) clipboard.writeImage(oldImage);
+      else if (oldText) clipboard.writeText(oldText);
+    } catch {}
+  };
 
+  try {
     clipboard.clear();
     simulateCopy();
 
-    // Small delay for target app to copy selection
+    // Small delay for target app to copy selection; one retry for slow apps
     await new Promise((r) => setTimeout(r, 50));
-
-    const copied = clipboard.readText();
+    let copied = clipboard.readText();
     if (!copied || copied.trim().length === 0) {
-      if (hadImage) {
-        clipboard.writeImage(oldImage);
-      } else if (oldText) {
-        clipboard.writeText(oldText);
+      await new Promise((r) => setTimeout(r, 150));
+      copied = clipboard.readText();
+      if (!copied || copied.trim().length === 0) {
+        writeBack(); // nothing captured — restore user's clipboard immediately
+        return '';
       }
-      return '';
     }
+    // Defer restore: injection of the result must win over the write-back
+    restoreClipboardAfter(writeBack);
     return copied.trim();
   } catch (err) {
     console.warn('[Selection] Could not capture text selection:', err);
+    writeBack();
     return '';
   }
+}
+
+/**
+ * Restore the user's clipboard content AFTER the feature is done with it:
+ * the delayed write-back must never race with the injection of the
+ * translation/rewrite result into the foreground app.
+ */
+function restoreClipboardAfter(writeBack: () => void): void {
+  setTimeout(() => {
+    try { writeBack(); } catch {}
+  }, 2500);
 }
 
 function registerHotkeys() {
@@ -593,6 +612,17 @@ async function translateSelectionFromHotkey(selectedText: string, reason: string
     console.log(`[Translate] ${reason}: translated ${selectedText.length} chars in ${Date.now() - startedAt}ms`);
   } catch (err: any) {
     console.error('[Translate] Selection translation failed:', err);
+    // User-visible feedback: until now failures were completely silent
+    try {
+      const n = new Notification({
+        title: 'Ошибка перевода',
+        body: String(err?.message || err).slice(0, 200),
+        silent: true
+      });
+      n.show();
+    } catch {}
+    // Put the original text back if it was already replaced/removed
+    clipboard.writeText(selectedText);
     storage.addHistoryItem({
       id: traceId,
       timestamp: startedAt,
@@ -802,21 +832,38 @@ function setupIpcHandlers() {
 
   ipcMain.handle('models:pick-folder', async () => {
     const win = settingsWindow || BrowserWindow.getFocusedWindow() || undefined;
-    // Single dialog accepts BOTH a model file (gguf/bin) and a folder containing one
-    const res = await dialog.showOpenDialog(win as any, {
-      title: 'Выберите файл модели (*.gguf, *.bin) или папку с моделью',
-      filters: [
-        { name: 'Модели (GGUF / GGML)', extensions: ['gguf', 'bin'] },
-        { name: 'Все файлы', extensions: ['*'] }
-      ],
-      properties: ['openFile', 'openDirectory']
+    // Windows quirk: openFile+openDirectory together = folder-tree dialog where
+    // files are unclickable. Ask the user which shape they have, then open the
+    // matching dialog. If they cancel the shape prompt, default to file.
+    const shape = await dialog.showMessageBox(win as any, {
+      type: 'question',
+      buttons: ['Файл модели (*.gguf / *.bin)', 'Папка с моделью'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Подключение модели',
+      message: 'Что подключаем?',
+      detail: 'Один файл модели или папка, в которой он лежит.'
     });
+    const wantFolder = shape.response === 1;
+    const res = wantFolder
+      ? await dialog.showOpenDialog(win as any, {
+          title: 'Выберите папку с моделью (*.gguf, *.bin внутри)',
+          properties: ['openDirectory']
+        })
+      : await dialog.showOpenDialog(win as any, {
+          title: 'Выберите файл модели (*.gguf, *.bin)',
+          filters: [
+            { name: 'Модели (GGUF / GGML)', extensions: ['gguf', 'bin'] },
+            { name: 'Все файлы', extensions: ['*'] }
+          ],
+          properties: ['openFile']
+        });
     if (res.canceled || !res.filePaths[0]) return null;
-    const dir = res.filePaths[0];
-    const check = validateModelFolder(dir);
+    const picked = res.filePaths[0];
+    const check = validateModelFolder(picked);
     return {
-      path: dir,
-      suggestedName: path.basename(dir),
+      path: picked,
+      suggestedName: path.basename(picked),
       detectedEngine: check.ok ? check.engine : undefined
     };
   });

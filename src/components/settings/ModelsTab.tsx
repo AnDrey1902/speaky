@@ -211,7 +211,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
                 className="px-3 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 min-w-40"
               />
               <span className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300">
-                whisper.cpp (ggml .bin)
+                {draftFolder.detectedEngine === 'transcribe.cpp' ? 'transcribe.cpp (gguf .gguf)' : 'whisper.cpp (ggml .bin)'}
               </span>
             </div>
             <div className="flex items-center gap-2">
