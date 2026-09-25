@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AppSettings } from '../../types';
-import { Keyboard, Mic, Sparkles, Volume2, Power, RefreshCw, CheckCircle2, ArrowDownToLine, Languages, Globe } from 'lucide-react';
+import { Keyboard, Mic, Sparkles, Volume2, Power, RefreshCw, CheckCircle2, ArrowDownToLine, Languages, Globe, HardDrive } from 'lucide-react';
 import packageJson from '../../../package.json';
 import { getTranslations } from '../../utils/i18n';
 import { Badge, Button, ProgressBar, Select, SettingRow, Switch, TabHeader } from '../common/ui';
@@ -103,6 +103,27 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onChange }) =>
           <option value="zh">🇨🇳 中文</option>
         </Select>
       </SettingRow>
+
+      {/* Keep whisper model warm */}
+      {settings.provider === 'local' && (
+        <SettingRow
+          icon={HardDrive}
+          title="Держать whisper-модель в памяти"
+          desc="Фоновый whisper-server: повторные диктовки в 5–10 раз быстрее (без чтения модели с диска). Выгружается после простоя. Не влияет на transcribe.cpp — он всегда держит модель в RAM."
+        >
+          <Select
+            value={String(settings.whisperKeepWarmMinutes ?? 15)}
+            onChange={(e) => onChange({ whisperKeepWarmMinutes: Number(e.target.value) })}
+          >
+            <option value="0">Выключено (грузить каждый раз)</option>
+            <option value="5">5 минут</option>
+            <option value="15">15 минут (рекомендуется)</option>
+            <option value="30">30 минут</option>
+            <option value="60">1 час</option>
+            <option value="1440">Всегда (24 ч)</option>
+          </Select>
+        </SettingRow>
+      )}
 
       {/* Hotkey */}
       <SettingRow icon={Keyboard} title={t.hotkeyTitle} desc={t.hotkeyDesc}>

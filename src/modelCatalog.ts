@@ -49,7 +49,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     hfFile: 'ggml-small-q5_1.bin',
     languages: ['multi'],
     sizeMB: 181,
-    description: 'Лёгкая многоязычная модель whisper.cpp; хороший запасной вариант для слабых машин.',
+    description: 'Запасной вариант whisper.cpp: работает только на CPU и заметно медленнее GigaAM/Parakeet (модель читается с диска при каждой диктовке).',
     requires: 'whisper.cpp'
   },
   {
@@ -60,7 +60,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     hfFile: 'ggml-base-q5_1.bin',
     languages: ['multi'],
     sizeMB: 57,
-    description: 'Минимальный размер для старых ПК и быстрой проверки локального режима.',
+    description: 'Минимальный размер для быстрой проверки локального режима; тоже CPU-only, точность ниже.',
     requires: 'whisper.cpp'
   }
 ];

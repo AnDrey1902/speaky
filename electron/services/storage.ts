@@ -51,6 +51,7 @@ interface AppData {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
+  whisperKeepWarmMinutes: 15,
   hotkey: 'Ctrl+Space',
   mode: 'toggle',
   provider: 'groq',

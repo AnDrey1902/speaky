@@ -1,11 +1,14 @@
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import http from 'http';
 import { Worker } from 'worker_threads';
 import { TranscriptionResult } from './sttService';
+import { storage } from './storage';
 import {
   getWhisperCliPath,
+  getWhisperServerPath,
   getTranscribeDllDir,
   isWhisperCliAvailable,
   getInstalledModelPath,
@@ -219,15 +222,156 @@ function resampleLinear(samples: Float32Array, fromRate: number): Float32Array {
   return out;
 }
 
-/* ── whisper.cpp (spawn CLI) ──────────────────────────────────────── */
+/* ── whisper.cpp ─────────────────────────────────────────────────── */
+
+const WHISPER_SERVER_PORT = 18422;
+
+interface WhisperServerState {
+  proc: ChildProcess;
+  modelPath: string;
+  ready: boolean;
+  idleTimer: NodeJS.Timeout | null;
+}
+
+let whisperServer: WhisperServerState | null = null;
+let serverStarting: Promise<boolean> | null = null;
+
+/** Idle timeout from settings: whisperKeepWarmMinutes (0 = always cold) */
+function keepWarmMinutes(): number {
+  const v = storage.getSettings().whisperKeepWarmMinutes;
+  return typeof v === 'number' ? v : 15;
+}
+
+function stopWhisperServer(): void {
+  if (whisperServer) {
+    const s = whisperServer;
+    whisperServer = null;
+    if (s.idleTimer) clearTimeout(s.idleTimer);
+    try { s.proc.kill(); } catch {}
+  }
+  serverStarting = null;
+}
+
+function armIdleUnload(): void {
+  if (!whisperServer) return;
+  if (whisperServer.idleTimer) clearTimeout(whisperServer.idleTimer);
+  const minutes = keepWarmMinutes();
+  if (minutes <= 0) return;
+  whisperServer.idleTimer = setTimeout(stopWhisperServer, minutes * 60000);
+  // Do not keep the event loop alive just for the unload timer
+  (whisperServer.idleTimer as any).unref?.();
+}
+
+function serverHttpCheck(timeoutMs = 800): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port: WHISPER_SERVER_PORT, path: '/', timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
+/**
+ * Ensure whisper-server is running with the given model.
+ * Starts on first dictation (not at app launch), unloads after idle.
+ */
+async function ensureWhisperServer(modelPath: string): Promise<boolean> {
+  // Running with the right model?
+  if (whisperServer?.ready && whisperServer.modelPath === modelPath) {
+    armIdleUnload();
+    return true;
+  }
+  // Different model (or dead process) — restart
+  stopWhisperServer();
+
+  if (!serverStarting) {
+    serverStarting = (async () => {
+      const serverPath = getWhisperServerPath();
+      if (!fs.existsSync(serverPath)) return false;
+      const threads = Math.max(2, Math.floor(os.cpus().length / 2));
+      const args = ['-m', modelPath, '--host', '127.0.0.1', '--port', String(WHISPER_SERVER_PORT), '-t', String(threads)];
+      const proc = spawn(serverPath, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'] });
+      proc.on('exit', () => { if (whisperServer?.proc === proc) { whisperServer = null; } });
+      // Wait up to 30s for HTTP readiness
+      for (let i = 0; i < 60; i++) {
+        if (proc.pid === undefined) return false;
+        if (await serverHttpCheck()) {
+          whisperServer = { proc, modelPath, ready: true, idleTimer: null };
+          armIdleUnload();
+          return true;
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      try { proc.kill(); } catch {}
+      return false;
+    })().finally(() => { serverStarting = null; });
+  }
+  return serverStarting;
+}
+
+/** Multipart POST of a wav file to whisper-server /inference */
+function postWavToServer(wavPath: string, language: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const boundary = '----SpeakyBoundary' + Date.now();
+    const chunks: Buffer[] = [];
+    chunks.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n`));
+    chunks.push(fs.readFileSync(wavPath));
+    if (language && language !== 'auto') {
+      chunks.push(Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${language}\r\n`));
+    }
+    chunks.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+    const body = Buffer.concat(chunks);
+    const req = http.request({
+      host: '127.0.0.1', port: WHISPER_SERVER_PORT, path: '/inference', method: 'POST',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length },
+      timeout: RUN_TIMEOUT_MS
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (res.statusCode && res.statusCode >= 400) reject(new Error(json.error || `HTTP ${res.statusCode}`));
+          else resolve(String(json.text || ''));
+        } catch { reject(new Error('Некорректный ответ whisper-server')); }
+      });
+    });
+    req.on('error', (err) => reject(new Error(`whisper-server недоступен: ${err.message}`)));
+    req.on('timeout', () => { req.destroy(); reject(new Error('Таймаут запроса к whisper-server')); });
+    req.write(body);
+    req.end();
+  });
+}
 
 async function transcribeWithWhisperCpp(
-  cliPath: string,
   modelPath: string,
   tempPath: string,
   language: string
 ): Promise<string> {
+  const warm = keepWarmMinutes() > 0;
+  if (warm) {
+    // Persistent server path (model stays in RAM)
+    const ok = await ensureWhisperServer(modelPath);
+    if (ok) {
+      try {
+        const text = await postWavToServer(tempPath, language);
+        armIdleUnload();
+        return text;
+      } catch {
+        // Server broke mid-flight — fall through to one-shot CLI
+        stopWhisperServer();
+      }
+    }
+  }
+
+  // One-shot CLI fallback (also the path for keepWarm=0)
+  const cliPath = getWhisperCliPath();
   const args = ['-m', modelPath, '-f', tempPath, '-nt', '-np'];
+  const threads = Math.max(2, Math.floor(os.cpus().length / 2));
+  args.push('-t', String(threads));
   if (language && language !== 'auto') args.push('-l', language);
 
   return new Promise<string>((resolve, reject) => {
@@ -285,6 +429,7 @@ export async function transcribeAudioLocal(
     if (!fs.existsSync(cliPath)) {
       throw new Error('whisper-cli не найден в комплекте приложения');
     }
+    void cliPath;
     // whisper.cpp needs the wav on disk
     const tempPath = path.join(
       os.tmpdir(),
@@ -292,7 +437,7 @@ export async function transcribeAudioLocal(
     );
     try {
       await fs.promises.writeFile(tempPath, audioBuffer);
-      text = await transcribeWithWhisperCpp(cliPath, modelFile, tempPath, language);
+      text = await transcribeWithWhisperCpp(modelFile, tempPath, language);
     } finally {
       fs.promises.unlink(tempPath).catch(() => {});
     }

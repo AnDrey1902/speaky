@@ -34,7 +34,6 @@ const engineLabel: Record<ModelEngine, string> = {
   'whisper.cpp': 'whisper.cpp',
   'transcribe.cpp': 'transcribe.cpp',
   'faster-whisper': 'faster-whisper',
-  'whisper-cpp': 'whisper.cpp',
   'gigaam': 'GigaAM',
   'sherpa-onnx': 'sherpa-onnx',
   'onnx-asr': 'onnx-asr'
@@ -115,7 +114,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
     const res = await window.speakyAPI?.pickModelFolder?.();
     if (!res) return;
     if (!res.detectedEngine) {
-      setModelError('Не удалось определить модель: нужна папка с ggml-файлом (*.bin)');
+      setModelError('Не удалось определить модель: нужен файл *.gguf (transcribe.cpp) или *.bin (whisper.cpp), либо папка с таким файлом');
       return;
     }
     setDraftFolder(res);
@@ -129,7 +128,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ settings, onChange }) => {
       id,
       name: draftName.trim() || draftFolder.suggestedName,
       path: draftFolder.path,
-      engine: 'whisper.cpp'
+      engine: draftFolder.detectedEngine || 'whisper.cpp'
     });
     if (res && !res.ok) {
       setModelError(res.error || 'Ошибка подключения папки');

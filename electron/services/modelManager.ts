@@ -39,6 +39,15 @@ export function isWhisperCliAvailable(): boolean {
   }
 }
 
+/** Path to the bundled whisper-server binary (persistent in-RAM model) */
+export function getWhisperServerPath(): string {
+  const isDev = !app.isPackaged;
+  if (isDev) {
+    return path.join(__dirname, '..', 'resources', 'whisper', 'win-x64', 'whisper-server.exe');
+  }
+  return path.join(process.resourcesPath, 'whisper', 'win-x64', 'whisper-server.exe');
+}
+
 /** Directory holding the bundled transcribe.cpp native libraries */
 export function getTranscribeDllDir(): string {
   const isDev = !app.isPackaged;
@@ -235,9 +244,20 @@ export function resolveCustomModelFile(custom: CustomLocalModel): string | undef
   }
 }
 
-/* ── Download (Node-side, killable, no Python) ────────────────────── */
+/* ── Download (Node-side, killable, resumable, no Python) ─────────── */
 
 let activeDownload: { cancel: () => void } | null = null;
+
+const DOWNLOAD_MAX_ATTEMPTS = 8;
+
+/** Map electron.net error codes to user-friendly messages */
+function describeNetError(err: any): string {
+  const msg = String(err?.message || err || '');
+  if (/ERR_SSL_PROTOCOL_ERROR|ERR_CERT/i.test(msg)) return 'Ошибка SSL-соединения с HuggingFace';
+  if (/ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_/i.test(msg)) return 'Нет соединения — докачка продолжится автоматически';
+  if (/ERR_NAME_NOT_RESOLVED/i.test(msg)) return 'DNS не résolved — проверьте интернет';
+  return msg || 'Сетевая ошибка';
+}
 
 export function downloadModel(
   modelId: string,
@@ -251,104 +271,132 @@ export function downloadModel(
   const dest = path.join(modelDir(entry), ggmlFileOf(entry));
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const partFile = dest + '.part';
+  const url = `https://huggingface.co/${entry.huggingfaceId}/resolve/main/${ggmlFileOf(entry)}`;
 
-  let request: Electron.ClientRequest | null = null;
-  let settled = false;
   let cancelled = false;
+  let request: Electron.ClientRequest | null = null;
+  const cancel = () => {
+    cancelled = true;
+    try { request?.abort(); } catch {}
+  };
 
   const promise = new Promise<void>((resolve, reject) => {
-    const finish = (err?: Error) => {
-      if (settled) return;
-      settled = true;
-      activeDownload = null;
-      try {
-        if (fs.existsSync(partFile)) fs.unlinkSync(partFile);
-      } catch {}
+    /* Resume-aware attempt: continues from partFile size via Range header. */
+    const attempt = (tryIndex: number, fileOffset: number, lastError?: string): void => {
       if (cancelled) {
-        onProgress({ modelId, state: 'error', error: 'Скачивание отменено' });
         reject(new Error('Скачивание отменено'));
-      } else if (err) {
-        onProgress({ modelId, state: 'error', error: err.message });
-        reject(err);
-      } else {
-        onProgress({ modelId, state: 'done', percent: 100 });
-        resolve();
+        return;
+      }
+      if (tryIndex >= DOWNLOAD_MAX_ATTEMPTS) {
+        reject(new Error(`Скачивание не удалось после ${DOWNLOAD_MAX_ATTEMPTS} попыток${lastError ? ': ' + lastError : ''}`));
+        return;
+      }
+      if (tryIndex > 0) {
+        // Backoff before retry: 2s, 4s, 8s... capped at 30s
+        const delay = Math.min(30000, 2000 * Math.pow(2, tryIndex - 1));
+        setTimeout(() => {
+          if (!cancelled) attempt(tryIndex + 1, fs.existsSync(partFile) ? fs.statSync(partFile).size : 0);
+        }, delay);
+        return;
+      }
+
+      let received = fileOffset;
+      let expectedTotal = 0;
+      let lastEmit = 0;
+      let fileStream: fs.WriteStream | null = fs.createWriteStream(partFile, { flags: fileOffset > 0 ? 'a' : 'w' });
+      let settled = false;
+
+      const failOver = (err: any) => {
+        if (settled) return;
+        settled = true;
+        try { fileStream?.close(); } catch {}
+        fileStream = null;
+        try { request?.abort(); } catch {}
+        request = null;
+        attempt(tryIndex + 1, fs.existsSync(partFile) ? fs.statSync(partFile).size : 0, describeNetError(err));
+      };
+
+      const emitProgress = (force = false) => {
+        if (!expectedTotal) return;
+        const now = Date.now();
+        if (force || now - lastEmit > 250) {
+          lastEmit = now;
+          onProgress({
+            modelId,
+            state: 'downloading',
+            percent: Math.min(99.5, Math.round((received / expectedTotal) * 1000) / 10),
+            receivedMB: Math.round((received / 1048576) * 10) / 10
+          });
+        }
+      };
+
+      try {
+        request = net.request({ url, redirect: 'follow' });
+        request.setHeader('User-Agent', 'Speaky/1.0');
+        if (fileOffset > 0) {
+          request.setHeader('Range', `bytes=${fileOffset}-`);
+        }
+
+        request.on('response', (response) => {
+          const status = response.statusCode || 0;
+          // 200 = server ignored Range (full body): restart from scratch
+          if (fileOffset > 0 && status === 200) {
+            try { fileStream?.close(); } catch {}
+            fileStream = fs.createWriteStream(partFile, { flags: 'w' });
+            received = 0;
+            fileOffset = 0;
+          } else if (status < 200 || status >= 300) {
+            failOver(new Error(`HuggingFace вернул HTTP ${status}`));
+            return;
+          }
+
+          const lenHeader = parseInt(response.headers['content-length'] as string, 10);
+          expectedTotal =
+            received + (Number.isFinite(lenHeader) && lenHeader > 0 ? lenHeader : entry.sizeMB * 1048576);
+          emitProgress(true);
+
+          response.on('data', (chunk: Buffer) => {
+            received += chunk.length;
+            if (fileStream) fileStream.write(chunk);
+            emitProgress();
+          });
+
+          response.on('end', () => {
+            if (settled) return;
+            settled = true;
+            fileStream?.end(() => {
+              fileStream = null;
+              if (cancelled) { reject(new Error('Скачивание отменено')); return; }
+              // Server may end the body early without an error — validate size
+              const size = fs.existsSync(partFile) ? fs.statSync(partFile).size : 0;
+              if (expectedTotal && size < expectedTotal) {
+                attempt(tryIndex + 1, size, `соединение оборвалось на ${Math.round(size / 1048576)}МБ`);
+                return;
+              }
+              try {
+                fs.renameSync(partFile, dest);
+                onProgress({ modelId, state: 'done', percent: 100 });
+                resolve();
+              } catch (err: any) {
+                reject(err);
+              }
+            });
+          });
+
+          response.on('error', failOver);
+        });
+
+        request.on('error', failOver);
+        request.end();
+      } catch (err: any) {
+        failOver(err);
       }
     };
 
-    try {
-      const url = `https://huggingface.co/${entry.huggingfaceId}/resolve/main/${ggmlFileOf(entry)}`;
-      request = net.request({ url, redirect: 'follow' });
-      request.setHeader('User-Agent', 'Speaky/1.0');
-
-      let received = 0;
-      const total = entry.sizeMB * 1048576;
-      let lastEmit = 0;
-      const fileStream = fs.createWriteStream(partFile);
-
-      request.on('response', (response) => {
-        const status = response.statusCode || 0;
-        if (status < 200 || status >= 300) {
-          fileStream.close();
-          finish(new Error(`HuggingFace вернул HTTP ${status}`));
-          return;
-        }
-        const lenHeader = parseInt(response.headers['content-length'] as string, 10);
-        const totalKnown = Number.isFinite(lenHeader) && lenHeader > 0 ? lenHeader : total;
-
-        response.on('data', (chunk: Buffer) => {
-          received += chunk.length;
-          fileStream.write(chunk);
-          const now = Date.now();
-          if (now - lastEmit > 250 || received >= totalKnown) {
-            lastEmit = now;
-            onProgress({
-              modelId,
-              state: 'downloading',
-              percent: Math.min(99.5, Math.round((received / totalKnown) * 1000) / 10),
-              receivedMB: Math.round(received / 1048576 * 10) / 10
-            });
-          }
-        });
-
-        response.on('end', () => {
-          fileStream.end(() => {
-            if (cancelled) return finish();
-            try {
-              fs.renameSync(partFile, dest);
-              finish();
-            } catch (err: any) {
-              finish(err);
-            }
-          });
-        });
-
-        response.on('error', (err: any) => {
-          fileStream.close();
-          finish(err);
-        });
-      });
-
-      request.on('error', (err: any) => {
-        fileStream.close();
-        finish(err);
-      });
-
-      request.end();
-    } catch (err: any) {
-      finish(err);
-    }
+    attempt(0, fs.existsSync(partFile) ? fs.statSync(partFile).size : 0);
   });
 
-  activeDownload = {
-    cancel: () => {
-      cancelled = true;
-      try {
-        request?.abort();
-      } catch {}
-    }
-  };
-
+  activeDownload = { cancel };
   return { promise, cancel: () => activeDownload?.cancel() };
 }
 

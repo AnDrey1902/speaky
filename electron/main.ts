@@ -802,9 +802,14 @@ function setupIpcHandlers() {
 
   ipcMain.handle('models:pick-folder', async () => {
     const win = settingsWindow || BrowserWindow.getFocusedWindow() || undefined;
+    // Single dialog accepts BOTH a model file (gguf/bin) and a folder containing one
     const res = await dialog.showOpenDialog(win as any, {
-      title: 'Выберите папку с моделью',
-      properties: ['openDirectory']
+      title: 'Выберите файл модели (*.gguf, *.bin) или папку с моделью',
+      filters: [
+        { name: 'Модели (GGUF / GGML)', extensions: ['gguf', 'bin'] },
+        { name: 'Все файлы', extensions: ['*'] }
+      ],
+      properties: ['openFile', 'openDirectory']
     });
     if (res.canceled || !res.filePaths[0]) return null;
     const dir = res.filePaths[0];

@@ -59,6 +59,8 @@ export interface AppSettings {
   /* ── Translate mode ── */
   /** dedicated hotkey for translate-mode dictation */
   translateHotkey?: string;
+  /** whisper.cpp: keep model in RAM via background server; auto-unload after idle minutes (0 = never load) */
+  whisperKeepWarmMinutes?: number;
   /** target language of translate mode */
   translateTargetLang?: TranslateLanguage;
   /** editable system prompt for translation */
